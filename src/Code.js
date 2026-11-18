@@ -16,12 +16,19 @@ function onOpen() {
     .addSeparator()
     .addItem('Install hourly Gmail sync + weekly digest', 'installTriggers')
     .addItem('Remove triggers', 'removeTriggers')
+    .addSeparator()
+    .addItem('Forget processed emails (re-scan)', 'menuForgetProcessed')
     .addToUi();
 }
 
 function menuSyncGmail() {
   var r = syncGmail();
   SpreadsheetApp.getUi().alert('Scanned ' + r.scanned + ' new emails. ' + r.changes.length + ' application(s) updated. Details are in the "' + CONFIG.ACTIVITY_TAB + '" tab.');
+}
+
+function menuForgetProcessed() {
+  PropertiesService.getUserProperties().deleteProperty(PROCESSED_KEY);
+  SpreadsheetApp.getUi().alert('Done. The next sync re-reads the last ' + CONFIG.GMAIL.LOOKBACK_DAYS + ' days of email.');
 }
 
 function menuSendDigest() {

@@ -15,6 +15,17 @@ test('conditional "if we don\'t move forward" in an ack is not a rejection', () 
   assert.strictEqual(L.classifyEmail('Application received', body), 'ack');
 });
 
+test('ack that says "unfortunately unable to send rejection emails" is not a rejection', () => {
+  const body = 'Thank you so much for taking the time to apply for the Senior Product Manager position! ' +
+    'Confirming that we’ve successfully received your application. We are currently reviewing applications ' +
+    'and will reach out directly if your experience is a strong match for this role.\n\n' +
+    'Due to the high volume of applications we receive, we are unfortunately unable to send individual rejection ' +
+    'emails or respond to personal status inquiries. If you do not hear from us, please assume we have decided to ' +
+    'move forward with other candidates whose experience more closely align with this role.';
+  assert.strictEqual(L.classifyEmail('Thank you for applying to Vetcove!', body), 'ack');
+  assert.strictEqual(L.classifyEmail('Update', 'Confirming that we’ve successfully received your application.'), 'ack');
+});
+
 test('rejection beats a polite thank-you in the same email', () => {
   assert.strictEqual(L.classifyEmail('Thank you for your interest', 'Thank you for applying. We regret to inform you the position has been filled.'), 'rejection');
 });

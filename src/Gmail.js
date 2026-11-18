@@ -71,6 +71,7 @@ function syncGmail() {
     changes.push({ company: app.company, from: previous, to: status, subject: subject });
   });
 
-  saveProcessed_(processed);
+  // In dry run, leave mail unprocessed so the live run still sees it.
+  if (!CONFIG.GMAIL.DRY_RUN) saveProcessed_(processed);
   return { scanned: messages.length, changes: changes };
 }

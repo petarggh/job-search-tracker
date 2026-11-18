@@ -43,7 +43,7 @@ var EMAIL_RULES = [
     /next steps? (?:in|of) (?:the|our) (?:interview|hiring) process/i, /phone screen|recruiter screen|pre-?screen/i,
     /would love to (?:chat|talk|connect|speak)/i ] },
   { type: 'ack', patterns: [
-    /(?:thank you|thanks) for (?:your )?(?:applying|application|interest)/i, /(?:we(?:'ve| have)|has been) received your application/i,
+    /(?:thank you|thanks) for (?:your )?(?:applying|application|interest)/i, /(?:we(?:['’]ve| have)|has been) (?:\w+ )?received your application/i,
     /application (?:has been )?(?:received|submitted)/i, /confirm(?:ing)? (?:receipt|we received)/i ] }
 ];
 
@@ -51,9 +51,11 @@ var EMAIL_RULES = [
 function classifyEmail(subject, body) {
   var text = (subject || '') + '\n' + (body || '').slice(0, 6000);
   // Acks often say "if we decide not to move forward, we'll let you know".
-  // Drop conditional sentences before looking for rejection language.
+  // Drop conditional sentences before looking for rejection language, plus
+  // "we're unfortunately unable to send individual rejection emails" disclaimers.
   var definite = text.split(/(?<=[.!?\n])\s+/).filter(function (s) {
-    return !/\b(if|should|in the event|whether)\b/i.test(s);
+    return !/\b(if|should|in the event|whether)\b/i.test(s) &&
+      !/\b(?:unable|not able|can(?:no|['’])t)\b.{0,40}\b(?:send|respond|reply|provide|contact)\b/i.test(s);
   }).join(' ');
   for (var i = 0; i < EMAIL_RULES.length; i++) {
     var rule = EMAIL_RULES[i];

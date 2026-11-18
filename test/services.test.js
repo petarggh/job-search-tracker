@@ -117,6 +117,7 @@ test('Gmail sync: ack, then rejection, logs to activity, and skips already-proce
     msg('m3', 'news@substack.com', 'Weekly digest', 'Articles', '2026-11-19T08:00:00')
   ];
   const { ctx, sheets } = load(rows, messages);
+  ctx.CONFIG.GMAIL.DRY_RUN = false;
   const out = ctx.syncGmail();
   assert.strictEqual(out.changes.length, 2);
   assert.deepStrictEqual(Array.from(out.changes, c => c.to), ['Applied - Email Ack', 'Rejection First Contact']);
@@ -127,6 +128,19 @@ test('Gmail sync: ack, then rejection, logs to activity, and skips already-proce
   assert.ok(sheets.activity, 'activity tab created');
   const again = ctx.syncGmail();
   assert.strictEqual(again.scanned, 0);
+});
+
+test('Gmail sync dry run changes nothing and does not mark mail as processed', () => {
+  const rows = baseRows();
+  const messages = [msg('m1', 'no-reply@ashbyhq.com', 'Thank you for applying to GoodParty.org', 'We have received your application.', '2026-11-18T08:00:00')];
+  const { ctx } = load(rows, messages);
+  ctx.CONFIG.GMAIL.DRY_RUN = true;
+  assert.strictEqual(ctx.syncGmail().changes.length, 1);
+  assert.strictEqual(rows[2][2], 'Applied - no Ack');
+  ctx.CONFIG.GMAIL.DRY_RUN = false;
+  const live = ctx.syncGmail();
+  assert.strictEqual(live.scanned, 1);
+  assert.strictEqual(rows[2][2], 'Applied - Email Ack');
 });
 
 test('follow-up digest emails only when something is overdue', () => {
