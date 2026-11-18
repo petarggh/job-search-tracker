@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<script src="https://www.gstatic.com/charts/loader.js"></script>
+<style>
+  :root { --green:#356854; --green2:#8bb8a0; --amber:#e0a33a; --pale:#e8f1ec; --ink:#1f2a25; --muted:#6b7570; --line:#dfe6e2; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Roboto, system-ui, sans-serif; color:var(--ink); background:#fafcfb; }
+  header { background:var(--green); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  nav button { background:transparent; color:#fff; border:1px solid rgba(255,255,255,.4); border-radius:16px; padding:6px 14px; cursor:pointer; font-size:13px; }
+  nav button.on { background:#fff; color:var(--green); }
+  main { max-width:1180px; margin:0 auto; padding:18px; }
+  .view { display:none; } .view.on { display:block; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; margin-bottom:18px; }
+  .kpi { background:var(--pale); border-radius:10px; padding:12px 14px; }
+  .kpi .l { font-size:12px; color:var(--muted); } .kpi .v { font-size:26px; font-weight:700; color:var(--green); margin-top:4px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(520px,1fr)); gap:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px; min-height:120px; }
+  .card h2 { font-size:14px; margin:0 0 8px; color:var(--green); }
+  .chart { width:100%; height:300px; }
+  .empty { color:var(--muted); font-size:13px; padding:30px 0; text-align:center; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; background:var(--green); color:#fff; padding:7px 8px; position:sticky; top:0; }
+  td { padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:nth-child(even) td { background:#f6f8f9; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; background:var(--pale); }
+  .pill.rej { background:#fbe3d6; } .pill.int { background:#d9ecdf; font-weight:600; } .pill.closed { background:#eee; }
+  form .row { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:10px; }
+  label { font-size:12px; color:var(--muted); display:block; }
+  input, select, textarea { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; font:inherit; font-size:14px; margin-top:3px; }
+  button.primary { background:var(--green); color:#fff; border:0; border-radius:6px; padding:9px 16px; cursor:pointer; font-size:14px; }
+  button.secondary { background:#fff; color:var(--green); border:1px solid var(--green); border-radius:6px; padding:8px 14px; cursor:pointer; }
+  .msg { font-size:13px; margin:8px 0; } .msg.err { color:#b23b1e; } .msg.ok { color:var(--green); }
+  .list li { margin:4px 0; font-size:13px; } .muted { color:var(--muted); font-size:12px; }
+  .toolbar { display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; } .toolbar input { max-width:260px; }
+  @media (max-width:600px){ .grid{grid-template-columns:1fr;} .card{overflow-x:auto;} }
+</style>
+</head>
+<body>
+<header>
+  <h1>Job Search Tracker</h1>
+  <nav>
+    <button data-view="dash" class="on">Dashboard</button>
+    <button data-view="apps">Applications</button>
+    <button data-view="log">Log an application</button>
+  </nav>
+</header>
+<main>
+  <div id="loading" class="empty">Loading…</div>
+
+  <section id="dash" class="view on">
+    <div class="kpis" id="kpis"></div>
+    <div class="grid">
+      <div class="card" style="grid-column:1/-1"><h2>Where applications end up</h2><div id="sankey" class="chart" style="height:340px"></div></div>
+      <div class="card"><h2>Applications per day</h2><div id="calendar" class="chart" style="height:200px"></div></div>
+      <div class="card"><h2>Days until first response</h2><div id="hist" class="chart"></div></div>
+      <div class="card" style="grid-column:1/-1"><h2>Timeline</h2><div id="timeline" class="chart"></div></div>
+      <div class="card"><h2>Response rate by company type</h2><div id="byType" class="chart"></div></div>
+      <div class="card"><h2>Needs attention</h2><div id="follow"></div></div>
+      <div class="card" style="grid-column:1/-1"><h2>Recent activity</h2><div id="activity"></div></div>
+    </div>
+  </section>
+
+  <section id="apps" class="view">
+    <div class="toolbar">
+      <input id="filter" placeholder="Filter by company, title or status">
+      <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="openOnly" style="width:auto;margin:0"> Open only</label>
+    </div>
+    <div class="card"><table id="appTable"></table></div>
+  </section>
+
+  <section id="log" class="view">
+    <div class="card">
+      <h2>Log an application you've submitted</h2>
+      <p class="muted">Paste the posting or application link and look it up. Check the fields, then save.</p>
+      <form id="logForm" onsubmit="return false">
+        <div class="row">
+          <div style="grid-column:1/-1"><label>Job URL</label>
+            <div style="display:flex;gap:8px"><input name="url" id="url" placeholder="https://jobs.ashbyhq.com/…"><button type="button" class="secondary" id="lookup">Look up</button></div></div>
+        </div>
+        <div class="row">
+          <div><label>Title *</label><input name="title" required></div>
+          <div><label>Company *</label><input name="company" required></div>
+          <div><label>Submitted</label><input name="submitted" type="datetime-local"></div>
+        </div>
+        <div class="row">
+          <div><label>Pay min</label><input name="payMin" type="number"></div>
+          <div><label>Pay max</label><input name="payMax" type="number"></div>
+          <div><label>Location</label><input name="location" disabled></div>
+        </div>
+        <div class="row">
+          <div><label>Source</label><select name="source"><option></option><option>Company site</option><option>LinkedIn</option><option>Built In</option><option>B Work</option><option>Other job board</option><option>Referral</option><option>Recruiter</option><option>Other</option></select></div>
+          <div><label>Company type</label><select name="companyType"><option></option><option>B Corp</option><option>PBC</option><option>B Corp + PBC</option><option>Employee-owned</option><option>Nonprofit</option><option>Standard / unknown</option></select></div>
+          <div><label>Fit</label><select name="fit"><option></option><option>High</option><option>Medium</option><option>Low</option></select></div>
+        </div>
+        <div class="row">
+          <div><label>Resume</label><input name="resume" id="resume"></div>
+          <div><label>Cover letter</label><input name="coverLetter" placeholder="file name, or n/a"></div>
+          <div><label>Status</label><select name="status" id="statusSel"></select></div>
+        </div>
+        <div class="row"><div style="grid-column:1/-1"><label>Notes</label><textarea name="notes" rows="2"></textarea></div></div>
+        <button type="button" class="primary" id="save">Save to tracker</button>
+        <div id="logMsg" class="msg"></div>
+      </form>
+    </div>
+  </section>
+</main>
+
+<script>
+var DATA = null, chartsReady = false;
+var DAY = 86400000;
+var OPEN_CLOSED = /^(Reject|Job Closed)/i;
+
+google.charts.load('current', { packages: ['corechart', 'sankey', 'calendar', 'timeline'] });
+google.charts.setOnLoadCallback(function () { chartsReady = true; render(); });
+
+document.querySelectorAll('nav button').forEach(function (b) {
+  b.onclick = function () {
+    document.querySelectorAll('nav button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    document.querySelectorAll('.view').forEach(function (v) { v.classList.toggle('on', v.id === b.dataset.view); });
+    if (b.dataset.view === 'dash') render();
+  };
+});
+
+function load() {
+  google.script.run.withSuccessHandler(function (d) {
+    DATA = d;
+    document.getElementById('loading').style.display = 'none';
+    var sel = document.getElementById('statusSel');
+    sel.innerHTML = d.statuses.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('');
+    document.getElementById('resume').value = d.defaultResume;
+    render(); renderTable();
+  }).withFailureHandler(function (e) {
+    document.getElementById('loading').textContent = 'Could not load: ' + e.message;
+  }).apiGetData();
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function d(v) { return v ? new Date(v) : null; }
+function pct(n, of) { return of ? Math.round(100 * n / of) + '%' : '–'; }
+function firstResponse(a) {
+  var t = [a.rejected, a.prescreen, a.interview1].filter(Boolean).map(function (x) { return new Date(x).getTime(); });
+  return t.length ? Math.min.apply(null, t) : null;
+}
+function human(a) { return !!(a.prescreen || a.interview1) || /Email Thread|Scheduled|done|after Email|after final/i.test(a.status || ''); }
+function heard(a) { return a.status !== 'Applied - no Ack' || !!a.rejected || human(a); }
+
+function render() {
+  if (!DATA || !chartsReady || !document.getElementById('dash').classList.contains('on')) return;
+  var apps = DATA.apps, now = new Date(DATA.now), n = apps.length;
+  var rejected = apps.filter(function (a) { return /^Reject/i.test(a.status); }).length;
+  var open = apps.filter(function (a) { return !OPEN_CLOSED.test(a.status || ''); }).length;
+  var interviews = apps.filter(function (a) { return a.interview1; }).length;
+  var humanN = apps.filter(human).length;
+  var responseDays = apps.map(function (a) { var f = firstResponse(a); return f && a.submitted ? (f - d(a.submitted)) / DAY : null; }).filter(function (x) { return x !== null; });
+  var median = responseDays.length ? responseDays.slice().sort(function (a, b) { return a - b; })[Math.floor(responseDays.length / 2)] : null;
+  var weekStart = new Date(now); weekStart.setHours(0, 0, 0, 0); weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+  var thisWeek = apps.filter(function (a) { return a.submitted && d(a.submitted) >= weekStart; }).length;
+  var mids = apps.filter(function (a) { return a.payMin && a.payMax; }).map(function (a) { return (a.payMin + a.payMax) / 2; });
+  var avgPay = mids.length ? mids.reduce(function (s, x) { return s + x; }, 0) / mids.length : null;
+
+  var kpis = [
+    ['Applications', n], ['Open', open], ['This week', thisWeek], ['Heard back', pct(apps.filter(heard).length, n)],
+    ['Human contact', pct(humanN, n)], ['Interview rate', pct(interviews, n)], ['Rejection rate', pct(rejected, n)],
+    ['Median days to response', median === null ? '–' : median.toFixed(1)],
+    ['Ghosted (30+ days)', DATA.followUps.ghosted.length], ['Avg pay midpoint', avgPay ? '$' + Math.round(avgPay / 1000) + 'k' : '–']
+  ];
+  document.getElementById('kpis').innerHTML = kpis.map(function (k) { return '<div class="kpi"><div class="l">' + k[0] + '</div><div class="v">' + k[1] + '</div></div>'; }).join('');
+
+  // Sankey
+  var el = document.getElementById('sankey');
+  if (DATA.sankey.length) {
+    var t = new google.visualization.DataTable();
+    t.addColumn('string', 'From'); t.addColumn('string', 'To'); t.addColumn('number', 'Applications');
+    t.addRows(DATA.sankey);
+    new google.visualization.Sankey(el).draw(t, { height: 340, sankey: { node: { colors: ['#356854', '#8bb8a0', '#e0a33a', '#5c8f7a', '#c9d9cf'], label: { fontSize: 13 } }, link: { colorMode: 'gradient' } } });
+  } else el.innerHTML = '<div class="empty">No applications yet.</div>';
+
+  // Calendar
+  var byDay = {};
+  apps.forEach(function (a) { if (!a.submitted) return; var x = d(a.submitted); var k = x.toDateString(); byDay[k] = (byDay[k] || 0) + 1; });
+  var cal = new google.visualization.DataTable();
+  cal.addColumn({ type: 'date', id: 'Date' }); cal.addColumn({ type: 'number', id: 'Applications' });
+  Object.keys(byDay).forEach(function (k) { cal.addRow([new Date(k), byDay[k]]); });
+  if (cal.getNumberOfRows()) new google.visualization.Calendar(document.getElementById('calendar')).draw(cal, { height: 200, calendar: { cellSize: 12 }, colorAxis: { colors: ['#e8f1ec', '#356854'] } });
+  else document.getElementById('calendar').innerHTML = '<div class="empty">No applications yet.</div>';
+
+  // Response-time histogram
+  var buckets = [['Same day', 0, 1], ['1–3 days', 1, 4], ['4–7', 4, 8], ['8–14', 8, 15], ['15–30', 15, 31], ['31+', 31, 1e9]];
+  var h = google.visualization.arrayToDataTable([['Days', 'Applications']].concat(buckets.map(function (b) {
+    return [b[0], responseDays.filter(function (x) { return x >= b[1] && x < b[2]; }).length];
+  })));
+  new google.visualization.ColumnChart(document.getElementById('hist')).draw(h, { legend: 'none', colors: ['#e0a33a'], chartArea: { width: '85%', height: '75%' }, vAxis: { format: '0', minValue: 0 } });
+
+  // Timeline
+  var tl = new google.visualization.DataTable();
+  tl.addColumn({ type: 'string', id: 'Company' }); tl.addColumn({ type: 'string', id: 'Stage' });
+  tl.addColumn({ type: 'date', id: 'Start' }); tl.addColumn({ type: 'date', id: 'End' });
+  apps.filter(function (a) { return a.submitted; }).forEach(function (a) {
+    var start = d(a.submitted), end = d(a.rejected) || (OPEN_CLOSED.test(a.status) ? new Date(start.getTime() + DAY) : now);
+    if (end <= start) end = new Date(start.getTime() + 3600000);
+    tl.addRow([a.company, a.status || '', start, end]);
+  });
+  if (tl.getNumberOfRows()) new google.visualization.Timeline(document.getElementById('timeline')).draw(tl, { height: Math.max(160, 42 * tl.getNumberOfRows() + 50), timeline: { colorByRowLabel: false } });
+  else document.getElementById('timeline').innerHTML = '<div class="empty">No applications yet.</div>';
+
+  // By company type
+  var types = {};
+  apps.forEach(function (a) { var k = a.companyType || 'Not set'; types[k] = types[k] || [0, 0, 0]; types[k][0]++; if (heard(a) && (human(a) || a.rejected)) types[k][1]++; if (a.interview1) types[k][2]++; });
+  var bt = google.visualization.arrayToDataTable([['Type', 'Applied', 'Responded', 'Interviewed']].concat(Object.keys(types).map(function (k) { return [k].concat(types[k]); })));
+  new google.visualization.ColumnChart(document.getElementById('byType')).draw(bt, { colors: ['#356854', '#8bb8a0', '#e0a33a'], legend: { position: 'bottom' }, chartArea: { width: '85%', height: '65%' }, vAxis: { format: '0', minValue: 0 } });
+
+  // Follow-ups
+  var f = DATA.followUps;
+  function li(x) { return '<li>' + (x.url ? '<a href="' + esc(x.url) + '" target="_blank">' + esc(x.company) + '</a>' : esc(x.company)) + ' <span class="muted">' + x.days + ' days</span></li>'; }
+  document.getElementById('follow').innerHTML =
+    (f.followUp.length ? '<b>Follow up</b><ul class="list">' + f.followUp.map(li).join('') + '</ul>' : '') +
+    (f.ghosted.length ? '<b>Likely ghosted</b><ul class="list">' + f.ghosted.map(li).join('') + '</ul>' : '') ||
+    '<div class="empty">Nothing needs a nudge right now.</div>';
+
+  // Activity
+  var act = DATA.activity;
+  document.getElementById('activity').innerHTML = act.length ? '<table><tr><th>When</th><th>What</th><th>Company</th><th>Detail</th></tr>' +
+    act.map(function (r) { return '<tr><td>' + esc(new Date(r.when).toLocaleString()) + '</td><td>' + esc(r.action) + '</td><td>' + esc(r.company) + '</td><td>' + esc(r.detail) + '</td></tr>'; }).join('') + '</table>'
+    : '<div class="empty">No automated changes yet.</div>';
+}
+
+function pillClass(s) { return /^Reject/i.test(s) ? 'rej' : /Job Closed/i.test(s) ? 'closed' : /interview|Pre-Screen|Thread/i.test(s) ? 'int' : ''; }
+var DATE_FOR = { 'Pre-Screen Scheduled': 'prescreen', 'Interview Scheduled': 'interview1', 'First interview done': 'interview1', 'Second Interview Done': 'interview2' };
+
+function renderTable() {
+  if (!DATA) return;
+  var q = document.getElementById('filter').value.toLowerCase(), openOnly = document.getElementById('openOnly').checked;
+  var rows = DATA.apps.filter(function (a) {
+    if (openOnly && OPEN_CLOSED.test(a.status || '')) return false;
+    return !q || [a.company, a.title, a.status].join(' ').toLowerCase().indexOf(q) >= 0;
+  }).sort(function (a, b) { return (b.submitted || '').localeCompare(a.submitted || ''); });
+  var opts = function (cur) { return DATA.statuses.map(function (s) { return '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join(''); };
+  document.getElementById('appTable').innerHTML = '<tr><th>Company</th><th>Role</th><th>Applied</th><th>Status</th><th>Change status</th></tr>' +
+    rows.map(function (a) {
+      return '<tr><td><b>' + esc(a.company) + '</b><div class="muted">' + esc(a.companyType || '') + (a.fit ? ' · ' + esc(a.fit) + ' fit' : '') + '</div></td>' +
+        '<td>' + (a.url ? '<a href="' + esc(a.url) + '" target="_blank">' + esc(a.title) + '</a>' : esc(a.title)) +
+        (a.payMin ? '<div class="muted">$' + Math.round(a.payMin / 1000) + 'k–$' + Math.round(a.payMax / 1000) + 'k</div>' : '') + '</td>' +
+        '<td>' + (a.submitted ? esc(new Date(a.submitted).toLocaleDateString()) : '') + '</td>' +
+        '<td><span class="pill ' + pillClass(a.status) + '">' + esc(a.status) + '</span></td>' +
+        '<td><select data-row="' + a.row + '" data-company="' + esc(a.company) + '" class="statusChange">' + opts(a.status) + '</select></td></tr>';
+    }).join('');
+  document.querySelectorAll('.statusChange').forEach(function (s) {
+    s.onchange = function () {
+      var status = s.value, field = /^Reject/i.test(status) ? 'rejected' : DATE_FOR[status] || null;
+      var when = field ? prompt('Date and time for "' + status + '" (leave as is for now):', new Date().toLocaleString()) : null;
+      if (field && when === null) { renderTable(); return; }
+      s.disabled = true;
+      google.script.run.withSuccessHandler(load).withFailureHandler(function (e) { alert(e.message); load(); })
+        .apiUpdateStatus(Number(s.dataset.row), s.dataset.company, status, field, when ? new Date(when).toISOString() : null);
+    };
+  });
+}
+document.getElementById('filter').oninput = renderTable;
+document.getElementById('openOnly').onchange = renderTable;
+
+// Log form
+var form = document.getElementById('logForm');
+function msg(text, cls) { var m = document.getElementById('logMsg'); m.textContent = text; m.className = 'msg ' + (cls || ''); }
+function localNow() { var x = new Date(); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 16); }
+form.submitted.value = localNow();
+
+document.getElementById('lookup').onclick = function () {
+  var url = form.url.value.trim(); if (!url) return msg('Paste a URL first.', 'err');
+  msg('Looking up…');
+  google.script.run.withSuccessHandler(function (p) {
+    ['title', 'company', 'location'].forEach(function (k) { if (p[k]) form[k].value = p[k]; });
+    if (p.payMin) form.payMin.value = p.payMin; if (p.payMax) form.payMax.value = p.payMax;
+    var found = ['title', 'company'].filter(function (k) { return p[k]; }).length;
+    msg(found ? 'Filled in from the posting (' + p.ats + '). Check the fields before saving.' : 'Couldn’t read this page. Fill the fields in by hand.', found ? 'ok' : 'err');
+  }).withFailureHandler(function (e) { msg('Lookup failed: ' + e.message, 'err'); }).apiLookupPosting(url);
+};
+
+document.getElementById('save').onclick = function () {
+  if (!form.title.value || !form.company.value) return msg('Title and company are required.', 'err');
+  var data = {};
+  ['url', 'title', 'company', 'payMin', 'payMax', 'source', 'companyType', 'fit', 'resume', 'coverLetter', 'status', 'notes'].forEach(function (k) { data[k] = form[k].value; });
+  data.submitted = form.submitted.value ? new Date(form.submitted.value).toISOString() : null;
+  msg('Saving…');
+  google.script.run.withSuccessHandler(function (row) {
+    msg('Saved to row ' + row + '.', 'ok');
+    var keep = { resume: form.resume.value }; form.reset(); form.resume.value = keep.resume; form.submitted.value = localNow();
+    load();
+  }).withFailureHandler(function (e) { msg('Save failed: ' + e.message, 'err'); }).apiLogApplication(data);
+};
+
+window.addEventListener('resize', function () { clearTimeout(window._rz); window._rz = setTimeout(render, 250); });
+load();
+</script>
+</body>
+</html>

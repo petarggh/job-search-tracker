@@ -1,0 +1,11 @@
+{
+  "name": "job-search-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Apps Script web app for a job-search Google Sheet: URL import, Gmail auto-updates, follow-up nudges, visuals.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "push": "clasp push",
+    "deploy": "clasp push && clasp deploy --description \"$(date +%Y-%m-%d)\""
+  }
+}
