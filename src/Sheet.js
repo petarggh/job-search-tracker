@@ -106,16 +106,24 @@ function updateApplication(row, expectedCompany, fields) {
 }
 
 /** Append-only audit log of everything the app changes. */
-function logActivity(action, company, detail) {
+function logActivity(action, company, detail, emailDate, excerpt) {
   var ss = getSpreadsheet_();
   var sh = ss.getSheetByName(CONFIG.ACTIVITY_TAB);
   if (!sh) {
     sh = ss.insertSheet(CONFIG.ACTIVITY_TAB);
-    sh.appendRow(['When', 'Action', 'Company', 'Detail']);
+    sh.appendRow(['When', 'Action', 'Company', 'Detail', 'Email date', 'Email excerpt']);
     sh.setFrozenRows(1);
     sh.getRange('A:A').setNumberFormat('M/d/yyyy H:mm');
+    sh.getRange('E:E').setNumberFormat('M/d/yyyy H:mm');
+  } else if (emailDate && sh.getRange(1, 5).getValue() === '') {
+    // Tab made by an older version: add the two new headers.
+    sh.getRange(1, 5).setValue('Email date');
+    sh.getRange(1, 6).setValue('Email excerpt');
+    sh.getRange('E:E').setNumberFormat('M/d/yyyy H:mm');
   }
-  sh.appendRow([new Date(), action, company || '', detail || '']);
+  var row = [new Date(), action, company || '', detail || ''];
+  if (emailDate) row.push(emailDate, excerpt || '');
+  sh.appendRow(row);
 }
 
 function readActivity(limit) {

@@ -47,9 +47,19 @@ var EMAIL_RULES = [
     /application (?:has been )?(?:received|submitted)/i, /confirm(?:ing)? (?:receipt|we received)/i ] }
 ];
 
+/** Short plain-text excerpt of an email body for the activity log: links dropped, whitespace collapsed. */
+function emailExcerpt(body, max) {
+  max = max || 1500;
+  var t = String(body || '').replace(/<?https?:\/\/\S+>?/g, '').replace(/\s+/g, ' ').trim();
+  return t.length > max ? t.slice(0, max) + '…' : t;
+}
+
 /** Returns 'rejection' | 'interview' | 'ack' | null. Rejection wins over the others. */
 function classifyEmail(subject, body) {
-  var text = (subject || '') + '\n' + (body || '').slice(0, 6000);
+  // Plain-text emails wrap mid-sentence. Join wrapped lines; keep blank-line paragraph breaks.
+  var flat = (body || '').slice(0, 6000).replace(/\r/g, '')
+    .replace(/[ \t]*\n[ \t]*\n\s*/g, '\u0000').replace(/\s+/g, ' ').replace(/\u0000/g, '\n');
+  var text = (subject || '') + '\n' + flat;
   // Acks often say "if we decide not to move forward, we'll let you know".
   // Drop conditional sentences before looking for rejection language, plus
   // "we're unfortunately unable to send individual rejection emails" disclaimers.
@@ -279,6 +289,6 @@ if (typeof module !== 'undefined') {
     companyKey: companyKey, matchApplication: matchApplication, parsePostingUrl: parsePostingUrl,
     fromAshby: fromAshby, fromGreenhouse: fromGreenhouse, fromLever: fromLever, fromJsonLd: fromJsonLd,
     parsePayRange: parsePayRange, journey: journey, sankeyEdges: sankeyEdges, followUps: followUps,
-    heardBack: heardBack, hadHumanContact: hadHumanContact
+    heardBack: heardBack, hadHumanContact: hadHumanContact, emailExcerpt: emailExcerpt
   };
 }

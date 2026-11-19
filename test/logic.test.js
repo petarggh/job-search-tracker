@@ -26,6 +26,20 @@ test('ack that says "unfortunately unable to send rejection emails" is not a rej
   assert.strictEqual(L.classifyEmail('Update', 'Confirming that we’ve successfully received your application.'), 'ack');
 });
 
+test('email excerpt drops links, collapses whitespace, and truncates', () => {
+  assert.strictEqual(L.emailExcerpt('Hi Peter,\n\n  Thanks!  See https://x.com/a?b=1 now'), 'Hi Peter, Thanks! See now');
+  const long = L.emailExcerpt('a'.repeat(2000), 100);
+  assert.strictEqual(long.length, 101);
+  assert.strictEqual(L.emailExcerpt(null), '');
+});
+
+test('rejection wrapped across lines is still a rejection (Thrive Market)', () => {
+  const body = 'Hi Peter,\n\nThank you for your interest in Thrive Market and for taking the time to apply. After a\r\n' +
+    'thorough review of your qualifications, we\u2019ve decided to move\r\nforward with other candidates for this role.\n\n' +
+    'While we\u2019re unable to offer individual feedback due to the number of candidates, we appreciate your time.';
+  assert.strictEqual(L.classifyEmail('Thanks for your interest in Thrive Market', body), 'rejection');
+});
+
 test('rejection beats a polite thank-you in the same email', () => {
   assert.strictEqual(L.classifyEmail('Thank you for your interest', 'Thank you for applying. We regret to inform you the position has been filled.'), 'rejection');
 });

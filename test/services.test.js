@@ -126,6 +126,10 @@ test('Gmail sync: ack, then rejection, logs to activity, and skips already-proce
   assert.ok(rows[2][HEADERS.indexOf('Rejection Datetime')] instanceof Date);
   assert.strictEqual(rows[1][2], 'Applied - no Ack'); // Vetcove untouched
   assert.ok(sheets.activity, 'activity tab created');
+  const logRow = sheets.activity.getRange(2, 1, 1, 6).getValues()[0];
+  assert.strictEqual(sheets.activity.getRange(1, 6).getValue(), 'Email excerpt');
+  assert.ok(logRow[4] instanceof Date, 'email date logged');
+  assert.strictEqual(logRow[5], 'We have received your application.');
   const again = ctx.syncGmail();
   assert.strictEqual(again.scanned, 0);
 });

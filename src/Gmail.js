@@ -38,11 +38,12 @@ function syncGmail() {
     var subject = m.getSubject();
     var body = m.getPlainBody();
     var event = classifyEmail(subject, body);
+    var excerpt = emailExcerpt(body);
     if (!event) return;
 
     var i = matchApplication(apps, { from: m.getFrom(), subject: subject, body: body });
     if (i < 0) {
-      logActivity('Unmatched ' + event + ' email', '', subject + ' (from ' + m.getFrom() + ')');
+      logActivity('Unmatched ' + event + ' email', '', subject + ' (from ' + m.getFrom() + ')', m.getDate(), excerpt);
       return;
     }
     var app = apps[i];
@@ -56,7 +57,7 @@ function syncGmail() {
 
     var previous = app.status;
     if (CONFIG.GMAIL.DRY_RUN) {
-      logActivity('Would update (dry run)', app.company, detail);
+      logActivity('Would update (dry run)', app.company, detail, m.getDate(), excerpt);
     } else {
       try {
         updateApplication(app.row, app.company, fields);
@@ -64,7 +65,7 @@ function syncGmail() {
         logActivity('Skipped email update', app.company, e.message);
         return;
       }
-      logActivity('Auto-updated from email', app.company, detail);
+      logActivity('Auto-updated from email', app.company, detail, m.getDate(), excerpt);
       app.status = status;
       if (fields.rejected) app.rejected = fields.rejected.toISOString();
     }
