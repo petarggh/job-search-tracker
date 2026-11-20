@@ -34,14 +34,72 @@ function lookupPosting(url) {
     var html = fetchHtml_(url);
     var ld = fromJsonLd(html);
     p = p || ld;
-    ['title', 'company', 'location'].forEach(function (k) { if (!p[k]) p[k] = ld[k]; });
+    ['title', 'company', 'location', 'description'].forEach(function (k) { if (!p[k]) p[k] = ld[k]; });
     if (p.remote === null) p.remote = ld.remote;
     if (p.payMin === null) {
       var pay = (ld.payMin !== null) ? { min: ld.payMin, max: ld.payMax } : parsePayRange(html.replace(/<[^>]+>/g, ' '));
       if (pay) { p.payMin = pay.min; p.payMax = pay.max; }
     }
   }
+  if (!p.description && html) p.description = htmlToText(html).slice(0, 20000); // last resort: page text
   p.ats = ref.ats;
   p.url = url;
   return p;
+}
+
+/**
+ * Saves the posting text to a Google Doc so it survives the posting being taken down.
+ * Returns the doc URL, or null if the text looks too thin to be the real description.
+ */
+function savePostingDoc(company, title, url, posting) {
+  var text = String(posting && posting.description || '').slice(0, 60000);
+  if (text.length < CONFIG.POSTING.MIN_CHARS) return null;
+  var doc = DocumentApp.create('Posting - ' + company + ' - ' + title);
+  var body = doc.getBody();
+  body.getParagraphs()[0].setText(title).setHeading(DocumentApp.ParagraphHeading.HEADING1);
+  var pay = posting.payMin ? ' · $' + Math.round(posting.payMin / 1000) + 'k–$' + Math.round((posting.payMax || posting.payMin) / 1000) + 'k' : '';
+  body.appendParagraph(company + (posting.location ? ' · ' + posting.location : '') + pay);
+  body.appendParagraph('Saved ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMM d, yyyy') + ' from ' + url).setItalic(true);
+  body.appendParagraph('').setItalic(false);
+  text.split('\n').forEach(function (line) { if (line.trim()) body.appendParagraph(line).setItalic(false); });
+  doc.saveAndClose();
+  try {
+    DriveApp.getFileById(doc.getId()).moveTo(postingFolder_());
+  } catch (e) {
+    // Folder is a nicety; the doc stays in My Drive if this fails.
+  }
+  return doc.getUrl();
+}
+
+function postingFolder_() {
+  var props = PropertiesService.getUserProperties();
+  var id = props.getProperty('postingFolderId');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* deleted; make a new one */ } }
+  var folder = DriveApp.createFolder(CONFIG.POSTING.FOLDER_NAME);
+  props.setProperty('postingFolderId', folder.getId());
+  return folder;
+}
+
+/** Looks up and saves the posting for one application row. Returns the doc URL or null. Never throws. */
+function savePostingForApp_(row, company, title, url) {
+  try {
+    var link = savePostingDoc(company, title, url, lookupPosting(url));
+    if (!link) { logActivity('Posting not saved', company, 'Could not read the job description from ' + url); return null; }
+    updateApplication(row, company, { postingDoc: link });
+    logActivity('Saved posting', company, link);
+    return link;
+  } catch (e) {
+    logActivity('Posting not saved', company, e.message);
+    return null;
+  }
+}
+
+/** Menu: save postings for open applications that have a URL but no saved copy yet. */
+function saveMissingPostings() {
+  var apps = readApplications();
+  if (apps.length && !('postingDoc' in apps[0])) return { error: 'Add a "' + CONFIG.OPTIONAL_HEADERS.postingDoc + '" column to the data tab first.' };
+  var todo = apps.filter(function (a) { return a.url && !a.postingDoc && !isClosedStatus(a.status); }).slice(0, CONFIG.POSTING.BACKFILL_MAX);
+  var saved = 0;
+  todo.forEach(function (a) { if (savePostingForApp_(a.row, a.company, a.title, a.url)) saved++; });
+  return { tried: todo.length, saved: saved };
 }

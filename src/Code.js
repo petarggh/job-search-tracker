@@ -13,6 +13,7 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Job Tracker')
     .addItem('Sync Gmail now', 'menuSyncGmail')
     .addItem('Send follow-up digest now', 'menuSendDigest')
+    .addItem('Save missing job postings to Drive', 'menuSaveMissingPostings')
     .addSeparator()
     .addItem('Install hourly Gmail sync + weekly digest', 'installTriggers')
     .addItem('Remove triggers', 'removeTriggers')
@@ -34,6 +35,11 @@ function menuForgetProcessed() {
 function menuSendDigest() {
   var r = sendFollowUpDigest();
   SpreadsheetApp.getUi().alert(r.sent ? 'Sent a digest covering ' + r.count + ' application(s).' : 'Nothing needs a follow-up right now.');
+}
+
+function menuSaveMissingPostings() {
+  var r = saveMissingPostings();
+  SpreadsheetApp.getUi().alert(r.error || ('Saved ' + r.saved + ' of ' + r.tried + ' posting(s). Any that failed are listed in the "' + CONFIG.ACTIVITY_TAB + '" tab.'));
 }
 
 var TRIGGER_HANDLERS = ['syncGmail', 'sendFollowUpDigest'];
@@ -62,19 +68,32 @@ function apiGetData() {
     sankey: sankeyEdges(apps, now),
     followUps: followUps(apps, now, CONFIG.NUDGE.FOLLOW_UP_DAYS, CONFIG.NUDGE.GHOST_DAYS),
     activity: readActivity(15),
+    breakdowns: allBreakdowns(apps),
     statuses: Object.keys(STATUS).map(function (k) { return STATUS[k]; }),
     now: now.toISOString(),
-    defaultResume: CONFIG.DEFAULT_RESUME
+    defaultResume: CONFIG.DEFAULT_RESUME,
+    hasPostingDoc: apps.length ? ('postingDoc' in apps[0]) : false
   };
+}
+
+function apiCheckDuplicates(company, title, url) {
+  return findDuplicates(readApplications(), company, title, url);
 }
 
 function apiLookupPosting(url) {
   return lookupPosting(url);
 }
 
-/** Only called after Peter has applied: the form defaults Submitted to now. */
+/**
+ * Only called after Peter has applied: the form defaults Submitted to now.
+ * Returns {row, postingDoc}, or {duplicates} if he's applied there before and hasn't confirmed.
+ */
 function apiLogApplication(form) {
   if (!form || !form.company || !form.title) throw new Error('Company and title are required.');
+  if (!form.confirmDuplicate) {
+    var dups = findDuplicates(readApplications(), form.company, form.title, form.url);
+    if (dups.length) return { duplicates: dups };
+  }
   var fields = {
     title: form.title, company: form.company, status: form.status || STATUS.NO_ACK,
     url: form.url || '', resume: form.resume || CONFIG.DEFAULT_RESUME, coverLetter: form.coverLetter || '',
@@ -83,7 +102,13 @@ function apiLogApplication(form) {
     payMin: form.payMin ? Number(form.payMin) : '', payMax: form.payMax ? Number(form.payMax) : '',
     notes: form.notes || ''
   };
-  return appendApplication(fields);
+  var row = appendApplication(fields);
+  var postingDoc = null;
+  if (form.savePosting && fields.url && CONFIG.OPTIONAL_HEADERS.postingDoc) {
+    var map = columnMap_(getDataSheet_());
+    if (map.postingDoc) postingDoc = savePostingForApp_(row, fields.company, fields.title, fields.url);
+  }
+  return { row: row, postingDoc: postingDoc };
 }
 
 /** Changes status, and fills the matching date column if one is given. */

@@ -78,7 +78,7 @@ test('normalizes Ashby, Greenhouse, Lever and JSON-LD postings', () => {
   const id = 'e3a16838-9b9b-4318-893a-898b062f4c38';
   const a = L.fromAshby({ jobs: [{ id, title: 'Staff Product Manager', location: 'Remote (United States)', isRemote: true,
     compensation: { summaryComponents: [{ compensationType: 'Salary', minValue: 184000, maxValue: 200000 }] } }] }, id, 'Staff Product Manager @ GoodParty.org');
-  assert.deepStrictEqual(a, { title: 'Staff Product Manager', company: 'GoodParty.org', payMin: 184000, payMax: 200000, location: 'Remote (United States)', remote: true });
+  assert.deepStrictEqual(a, { title: 'Staff Product Manager', company: 'GoodParty.org', payMin: 184000, payMax: 200000, location: 'Remote (United States)', remote: true, description: '' });
 
   const g = L.fromGreenhouse({ title: 'Senior PM', company_name: 'B Lab', location: { name: 'Remote - US' }, pay_input_ranges: [{ min_cents: 12700000, max_cents: 13400000 }] }, 'blab');
   assert.strictEqual(g.payMin, 127000); assert.strictEqual(g.company, 'B Lab'); assert.strictEqual(g.remote, true);
@@ -87,7 +87,7 @@ test('normalizes Ashby, Greenhouse, Lever and JSON-LD postings', () => {
   assert.strictEqual(l.company, 'Veeva'); assert.strictEqual(l.remote, true); assert.strictEqual(l.payMax, 200000);
 
   const html = '<script type="application/ld+json">{"@type":"JobPosting","title":"PM","hiringOrganization":{"name":"Acme"},"jobLocationType":"TELECOMMUTE","baseSalary":{"value":{"minValue":150000,"maxValue":170000}}}</script>';
-  assert.deepStrictEqual(L.fromJsonLd(html), { title: 'PM', company: 'Acme', payMin: 150000, payMax: 170000, location: 'Remote', remote: true });
+  assert.deepStrictEqual(L.fromJsonLd(html), { title: 'PM', company: 'Acme', payMin: 150000, payMax: 170000, location: 'Remote', remote: true, description: '' });
 });
 
 test('parses pay ranges written in text', () => {
@@ -121,4 +121,59 @@ test('follow-ups and ghosted lists', () => {
   const f = L.followUps(apps, now, 14, 30);
   assert.deepStrictEqual(f.followUp.map(x => x.company), ['A']);
   assert.deepStrictEqual(f.ghosted.map(x => x.company), ['B']);
+});
+
+test('offer statuses: rank above interviews, and closed ones stay closed', () => {
+  assert.strictEqual(L.nextStatus(S.OFFER, 'rejection'), null);
+  assert.strictEqual(L.nextStatus(S.OFFER, 'ack'), null);
+  assert.strictEqual(L.nextStatus(S.OFFER_ACCEPTED, 'interview'), null);
+  assert.strictEqual(L.nextStatus(S.WITHDREW, 'rejection'), null);
+  assert.ok(L.isClosedStatus(S.OFFER_DECLINED) && !L.isClosedStatus(S.OFFER));
+  const now = new Date('2026-12-30');
+  assert.deepStrictEqual(L.journey({ status: S.OFFER_ACCEPTED, submitted: '2026-11-01', prescreen: '2026-11-05', interview1: '2026-11-10' }, now),
+    ['Applied', 'Heard back', 'Human contact', 'Pre-screen', 'Interviews', 'Offer accepted']);
+  assert.deepStrictEqual(L.journey({ status: S.WITHDREW, submitted: '2026-11-01' }, now), ['Applied', 'Withdrew']);
+  assert.strictEqual(L.followUps([{ status: S.WITHDREW, submitted: '2026-11-01' }], now, 14, 30).ghosted.length, 0);
+});
+
+test('breakdown counts response rates per resume and cover letter', () => {
+  const apps = [
+    { resume: 'A', status: S.NO_ACK }, { resume: 'A', status: S.REJ_FIRST, rejected: '2026-11-02' },
+    { resume: 'B', status: S.THREAD, coverLetter: 'Letter - Acme' }, { resume: '', status: S.NO_ACK, coverLetter: 'n/a' }
+  ];
+  const r = L.breakdown(apps, 'resume');
+  assert.deepStrictEqual(r.map(x => [x.label, x.applied, x.heard, x.human]), [['A', 2, 1, 0], ['B', 1, 1, 1], ['Not set', 1, 0, 0]]);
+  const c = L.breakdown(apps, 'coverLetter');
+  assert.deepStrictEqual(c.map(x => [x.label, x.applied]), [['No cover letter', 3], ['Cover letter', 1]]);
+});
+
+test('finds earlier applications by company name or URL', () => {
+  const apps = [
+    { row: 2, company: 'Anthropic PBC', title: 'Product Manager', url: 'https://jobs.ashbyhq.com/anthropic/1111-aaaa?src=li' },
+    { row: 3, company: 'Acme', title: 'Lead PM', url: 'https://acme.com/careers?gh_jid=555' }
+  ];
+  const d = L.findDuplicates(apps, 'Anthropic', 'Staff PM', '');
+  assert.deepStrictEqual(d.map(x => [x.row, x.sameRole]), [[2, false]]);
+  assert.strictEqual(L.findDuplicates(apps, 'Other name', 'x', 'https://www.jobs.ashbyhq.com/anthropic/1111-aaaa/application')[0].sameRole, true);
+  assert.strictEqual(L.findDuplicates(apps, 'Zed', 'x', 'https://acme.com/careers?gh_jid=999').length, 0);
+  assert.strictEqual(L.findDuplicates(apps, 'Acme Inc.', 'Lead PM', '')[0].sameRole, true);
+  assert.strictEqual(L.findDuplicates(apps, 'AI', 'x', '').length, 0, 'too-short names never match');
+});
+
+test('contacts: keep people, drop no-reply and ATS senders, no repeats', () => {
+  assert.strictEqual(L.contactFromSender('"Dana Lee" <Dana@Acme.com>'), 'Dana Lee <dana@acme.com>');
+  assert.strictEqual(L.contactFromSender('no-reply@acme.com'), null);
+  assert.strictEqual(L.contactFromSender('Acme Recruiting <talent@acme.com>'), null);
+  assert.strictEqual(L.contactFromSender('Dana via Greenhouse <dana@us.greenhouse-mail.io>'), null);
+  assert.strictEqual(L.contactFromSender('Acme <notifications@ashbyhq.com>'), null);
+  assert.strictEqual(L.mergeContacts('', 'Dana <dana@acme.com>'), 'Dana <dana@acme.com>');
+  assert.strictEqual(L.mergeContacts('Dana <dana@acme.com>', 'Dana Lee <DANA@acme.com>'.replace('DANA', 'dana')), null);
+  assert.strictEqual(L.mergeContacts('Hiring mgr: Sam', 'Dana <dana@acme.com>'), 'Hiring mgr: Sam; Dana <dana@acme.com>');
+});
+
+test('posting HTML becomes readable text, including Greenhouse escaped HTML and Lever lists', () => {
+  assert.strictEqual(L.htmlToText('&lt;p&gt;About us&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Remote &amp;amp; async&lt;/li&gt;&lt;/ul&gt;'), 'About us\n• Remote & async');
+  assert.strictEqual(L.htmlToText('<h2>Role</h2><p>Own the <b>roadmap</b>.<br>Ship it.</p><script>x()</script>'), 'Role\nOwn the roadmap .\nShip it.');
+  const lv = L.fromLever({ text: 'PM', descriptionPlain: 'Intro', lists: [{ text: 'Requirements', content: '<li>SQL</li>' }], additionalPlain: 'Benefits' }, 'acme');
+  assert.strictEqual(lv.description, 'Intro\nRequirements\n• SQL\nBenefits');
 });

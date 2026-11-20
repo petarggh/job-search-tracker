@@ -9,6 +9,7 @@ const HEADERS = ['Title', 'Company', 'Status?', 'Url', 'Url2', 'Resume', 'Cover 
   'Prescreen Datetime', 'First Interview Datetime', 'Second Interview Datetime', 'Third Interview Datetime', 'Source', 'Company Type',
   'Fit', 'Pay Min', 'Pay Max', 'Days to Response', 'Days Waiting', 'Notes', 'date'];
 
+let HEADERS_IN_USE = HEADERS;
 function fakeSheet(name, rows) {
   const grid = rows; // array of arrays; formulas stored as {f: '...'}
   const sh = {
@@ -19,7 +20,7 @@ function fakeSheet(name, rows) {
     setFrozenRows() {}, getRange(a, b, c, d) {
       if (typeof a === 'string') return { setNumberFormat() {} };
       const r0 = a - 1, c0 = b - 1, nr = c || 1, nc = d || 1;
-      const ensure = () => { while (grid.length < r0 + nr) grid.push(new Array(HEADERS.length).fill('')); };
+      const ensure = () => { while (grid.length < r0 + nr) grid.push(new Array(HEADERS_IN_USE.length).fill('')); };
       return {
         getValues: () => { ensure(); return Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => { const v = grid[r0 + i][c0 + j]; return v && v.f ? '' : (v === undefined ? '' : v); })); },
         getValue: () => { ensure(); const v = grid[r0][c0]; return v && v.f ? '' : (v === undefined ? '' : v); },
@@ -33,7 +34,7 @@ function fakeSheet(name, rows) {
   return sh;
 }
 
-function load(dataRows, messages) {
+function load(dataRows, messages, extra) {
   const sheets = { data: fakeSheet('data', dataRows) };
   const props = {};
   const sent = [];
@@ -53,8 +54,9 @@ function load(dataRows, messages) {
     MailApp: { sendEmail: (o) => sent.push(o) },
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/app' }), WeekDay: { MONDAY: 'MONDAY' } }
   };
+  Object.assign(ctx, extra || {});
   vm.createContext(ctx);
-  for (const f of ['Config', 'Logic', 'Sheet', 'Gmail', 'Nudges', 'Code']) {
+  for (const f of ['Config', 'Logic', 'Sheet', 'Posting', 'Gmail', 'Nudges', 'Code']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src', f + '.js'), 'utf8'), ctx, { filename: f });
   }
   return { ctx, sheets, sent };
@@ -89,7 +91,7 @@ test('appends into the first empty table row without touching formulas', () => {
   const rows = baseRows();
   const { ctx } = load(rows);
   const r = ctx.apiLogApplication({ title: 'Senior PM', company: 'Help Scout', payMin: '150000', payMax: '164000', companyType: 'B Corp + PBC' });
-  assert.strictEqual(r, 4);
+  assert.strictEqual(r.row, 4);
   assert.strictEqual(rows[3][1], 'Help Scout');
   assert.strictEqual(rows[3][2], 'Applied - no Ack');
   assert.strictEqual(rows[3][HEADERS.indexOf('Pay Min')], 150000);
@@ -100,7 +102,7 @@ test('copies formulas down when writing past the pre-filled rows', () => {
   const rows = baseRows().slice(0, 3); // no spare rows
   const { ctx } = load(rows);
   const r = ctx.apiLogApplication({ title: 'PM', company: 'Benevity' });
-  assert.strictEqual(r, 4);
+  assert.strictEqual(r.row, 4);
   assert.deepStrictEqual(rows[3][HEADERS.indexOf('date')], { f: '=d' });
 });
 
@@ -164,4 +166,88 @@ test('apiGetData returns everything the page needs', () => {
   assert.strictEqual(d.apps.length, 2);
   assert.ok(Array.isArray(d.sankey) && d.sankey.length > 0);
   assert.ok(d.statuses.includes('Rejection after Email'));
+});
+
+test('duplicate application is held for confirmation, then saved', () => {
+  const rows = baseRows();
+  const { ctx } = load(rows);
+  const r = ctx.apiLogApplication({ title: 'Staff Product Manager', company: 'GoodParty.org' });
+  assert.strictEqual(r.duplicates.length, 1);
+  assert.strictEqual(r.duplicates[0].sameRole, true);
+  assert.strictEqual(rows[3][1], '', 'nothing written yet');
+  const ok = ctx.apiLogApplication({ title: 'Staff Product Manager', company: 'GoodParty.org', confirmDuplicate: true });
+  assert.strictEqual(ok.row, 4);
+});
+
+// Sheet with the optional Posting Doc and Contacts columns added at the end.
+const WIDE = HEADERS.concat(['Posting Doc', 'Contacts']);
+function wideRows() {
+  return baseRows().map((r, i) => i === 0 ? WIDE.slice() : r.concat(['', '']));
+}
+
+test('Gmail sync adds a human sender to Contacts, but not no-reply senders', () => {
+  HEADERS_IN_USE = WIDE;
+  const rows = wideRows();
+  const messages = [
+    msg('m1', 'no-reply@ashbyhq.com', 'Thank you for applying to GoodParty.org', 'We have received your application.', '2026-11-18T08:00:00'),
+    msg('m2', 'Dana Lee <dana@goodparty.org>', 'GoodParty.org next steps', 'Would love to chat. What is your availability?', '2026-11-19T08:00:00')
+  ];
+  const { ctx } = load(rows, messages);
+  ctx.CONFIG.GMAIL.DRY_RUN = false;
+  ctx.syncGmail();
+  assert.strictEqual(rows[2][WIDE.indexOf('Contacts')], 'Dana Lee <dana@goodparty.org>');
+  assert.strictEqual(rows[2][2], 'Email Thread');
+  HEADERS_IN_USE = HEADERS;
+});
+
+test('offer-stage emails are logged, not applied', () => {
+  const rows = baseRows();
+  rows[2][2] = 'Offer Received';
+  const messages = [msg('m1', 'no-reply@ashbyhq.com', 'Your GoodParty.org application', 'Unfortunately we cannot proceed.', '2026-11-19T08:00:00')];
+  const { ctx, sheets } = load(rows, messages);
+  ctx.CONFIG.GMAIL.DRY_RUN = false;
+  ctx.syncGmail();
+  assert.strictEqual(rows[2][2], 'Offer Received');
+  assert.match(sheets.activity.getRange(2, 2).getValue(), /offer stage/);
+});
+
+test('logging with a URL saves the posting to a Doc and links it', () => {
+  HEADERS_IN_USE = WIDE;
+  const rows = wideRows();
+  const docs = [];
+  const fakeDoc = (name) => {
+    const paras = [];
+    const para = (t) => { const p = { t, setHeading: () => p, setItalic: () => p, setText: (x) => { p.t = x; return p; } }; paras.push(p); return p; };
+    para('');
+    const d = { name, paras, getBody: () => ({ getParagraphs: () => paras, appendParagraph: para }), saveAndClose() {}, getId: () => 'doc1', getUrl: () => 'https://docs.google.com/document/d/doc1' };
+    docs.push(d); return d;
+  };
+  const gh = { title: 'Senior PM', company_name: 'Help Scout', location: { name: 'Remote' },
+    content: '&lt;p&gt;' + 'You will own the roadmap for our help desk product. '.repeat(10) + '&lt;/p&gt;&lt;ul&gt;&lt;li&gt;5+ years&lt;/li&gt;&lt;/ul&gt;' };
+  const { ctx } = load(rows, [], {
+    DocumentApp: { create: fakeDoc, ParagraphHeading: { HEADING1: 'H1' } },
+    DriveApp: { getFileById: () => ({ moveTo() {} }), createFolder: () => ({ getId: () => 'f1' }), getFolderById: () => ({}) },
+    UrlFetchApp: { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify(gh) }) },
+    Utilities: { formatDate: () => 'Nov 19, 2026' }
+  });
+  ctx.Session.getScriptTimeZone = () => 'America/Los_Angeles';
+  const r = ctx.apiLogApplication({ title: 'Senior PM', company: 'Help Scout', url: 'https://job-boards.greenhouse.io/helpscout/jobs/123', savePosting: true });
+  assert.strictEqual(r.postingDoc, 'https://docs.google.com/document/d/doc1');
+  assert.strictEqual(rows[3][WIDE.indexOf('Posting Doc')], 'https://docs.google.com/document/d/doc1');
+  assert.strictEqual(docs[0].name, 'Posting - Help Scout - Senior PM');
+  assert.ok(docs[0].paras.some(p => /^• 5\+ years$/.test(p.t)), 'bullets kept');
+  HEADERS_IN_USE = HEADERS;
+});
+
+test('apiGetData includes response-rate breakdowns by resume', () => {
+  const rows = baseRows();
+  rows[1][HEADERS.indexOf('Resume')] = 'Resume-A';
+  rows[2][HEADERS.indexOf('Resume')] = 'Resume-B';
+  rows[2][2] = 'Email Thread';
+  const { ctx } = load(rows);
+  const d = ctx.apiGetData();
+  const b = d.breakdowns.resume.rows.find(r => r.label === 'Resume-B');
+  assert.strictEqual(b.applied, 1);
+  assert.strictEqual(b.human, 1);
+  assert.strictEqual(d.hasPostingDoc, false);
 });

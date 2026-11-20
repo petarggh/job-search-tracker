@@ -27,7 +27,10 @@
   td { padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   tr:nth-child(even) td { background:#f6f8f9; }
   .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; background:var(--pale); }
-  .pill.rej { background:#fbe3d6; } .pill.int { background:#d9ecdf; font-weight:600; } .pill.closed { background:#eee; }
+  .pill.rej { background:#fbe3d6; } .pill.int { background:#d9ecdf; font-weight:600; } .pill.closed { background:#eee; } .pill.offer { background:#f6e2b3; font-weight:600; }
+  .warn { background:#fdf3e1; border:1px solid #e0a33a; border-radius:8px; padding:10px 12px; font-size:13px; margin:0 0 12px; }
+  .warn ul { margin:6px 0 0; padding-left:18px; }
+  .bd th, .bd td { text-align:right; } .bd th:first-child, .bd td:first-child { text-align:left; }
   form .row { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:10px; }
   label { font-size:12px; color:var(--muted); display:block; }
   input, select, textarea { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; font:inherit; font-size:14px; margin-top:3px; }
@@ -58,7 +61,11 @@
       <div class="card"><h2>Applications per day</h2><div id="calendar" class="chart" style="height:200px"></div></div>
       <div class="card"><h2>Days until first response</h2><div id="hist" class="chart"></div></div>
       <div class="card" style="grid-column:1/-1"><h2>Timeline</h2><div id="timeline" class="chart"></div></div>
-      <div class="card"><h2>Response rate by company type</h2><div id="byType" class="chart"></div></div>
+      <div class="card" style="grid-column:1/-1"><h2>What's working</h2>
+        <div class="toolbar"><select id="bdField" style="max-width:240px"></select></div>
+        <div id="bdChart" class="chart" style="height:260px"></div>
+        <div id="bdTable"></div>
+        <p class="muted">Rates are out of applications sent with each option. With fewer than about 10 in a group, treat differences as noise.</p></div>
       <div class="card"><h2>Needs attention</h2><div id="follow"></div></div>
       <div class="card" style="grid-column:1/-1"><h2>Recent activity</h2><div id="activity"></div></div>
     </div>
@@ -102,6 +109,8 @@
           <div><label>Status</label><select name="status" id="statusSel"></select></div>
         </div>
         <div class="row"><div style="grid-column:1/-1"><label>Notes</label><textarea name="notes" rows="2"></textarea></div></div>
+        <div id="dupWarn" class="warn" style="display:none"></div>
+        <label id="savePostingWrap" style="display:flex;align-items:center;gap:6px;margin:0 0 12px;font-size:13px;color:var(--ink)"><input type="checkbox" id="savePosting" checked style="width:auto;margin:0"> Save a copy of the job posting to Drive</label>
         <button type="button" class="primary" id="save">Save to tracker</button>
         <div id="logMsg" class="msg"></div>
       </form>
@@ -112,7 +121,7 @@
 <script>
 var DATA = null, chartsReady = false;
 var DAY = 86400000;
-var OPEN_CLOSED = /^(Reject|Job Closed)/i;
+var OPEN_CLOSED = /^(Reject|Job Closed|Offer Accepted|Offer Declined|Withdrew)/i;
 
 google.charts.load('current', { packages: ['corechart', 'sankey', 'calendar', 'timeline'] });
 google.charts.setOnLoadCallback(function () { chartsReady = true; render(); });
@@ -132,6 +141,9 @@ function load() {
     var sel = document.getElementById('statusSel');
     sel.innerHTML = d.statuses.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('');
     document.getElementById('resume').value = d.defaultResume;
+    document.getElementById('savePostingWrap').style.display = d.hasPostingDoc ? 'flex' : 'none';
+    var bf = document.getElementById('bdField'), cur = bf.value || 'resume';
+    bf.innerHTML = Object.keys(d.breakdowns).map(function (k) { return '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>By ' + esc(d.breakdowns[k].label.toLowerCase()) + '</option>'; }).join('');
     render(); renderTable();
   }).withFailureHandler(function (e) {
     document.getElementById('loading').textContent = 'Could not load: ' + e.message;
@@ -145,8 +157,8 @@ function firstResponse(a) {
   var t = [a.rejected, a.prescreen, a.interview1].filter(Boolean).map(function (x) { return new Date(x).getTime(); });
   return t.length ? Math.min.apply(null, t) : null;
 }
-function human(a) { return !!(a.prescreen || a.interview1) || /Email Thread|Scheduled|done|after Email|after final/i.test(a.status || ''); }
-function heard(a) { return a.status !== 'Applied - no Ack' || !!a.rejected || human(a); }
+function human(a) { return !!(a.prescreen || a.interview1) || /Email Thread|Scheduled|done|after Email|after final|^Offer/i.test(a.status || ''); }
+function heard(a) { return (a.status && a.status !== 'Applied - no Ack' && a.status !== 'Withdrew') || !!a.rejected || human(a); }
 
 function render() {
   if (!DATA || !chartsReady || !document.getElementById('dash').classList.contains('on')) return;
@@ -166,6 +178,7 @@ function render() {
     ['Applications', n], ['Open', open], ['This week', thisWeek], ['Heard back', pct(apps.filter(heard).length, n)],
     ['Human contact', pct(humanN, n)], ['Interview rate', pct(interviews, n)], ['Rejection rate', pct(rejected, n)],
     ['Median days to response', median === null ? '–' : median.toFixed(1)],
+    ['Offers', apps.filter(function (a) { return /^Offer/i.test(a.status || ''); }).length],
     ['Ghosted (30+ days)', DATA.followUps.ghosted.length], ['Avg pay midpoint', avgPay ? '$' + Math.round(avgPay / 1000) + 'k' : '–']
   ];
   document.getElementById('kpis').innerHTML = kpis.map(function (k) { return '<div class="kpi"><div class="l">' + k[0] + '</div><div class="v">' + k[1] + '</div></div>'; }).join('');
@@ -207,11 +220,7 @@ function render() {
   if (tl.getNumberOfRows()) new google.visualization.Timeline(document.getElementById('timeline')).draw(tl, { height: Math.max(160, 42 * tl.getNumberOfRows() + 50), timeline: { colorByRowLabel: false } });
   else document.getElementById('timeline').innerHTML = '<div class="empty">No applications yet.</div>';
 
-  // By company type
-  var types = {};
-  apps.forEach(function (a) { var k = a.companyType || 'Not set'; types[k] = types[k] || [0, 0, 0]; types[k][0]++; if (heard(a) && (human(a) || a.rejected)) types[k][1]++; if (a.interview1) types[k][2]++; });
-  var bt = google.visualization.arrayToDataTable([['Type', 'Applied', 'Responded', 'Interviewed']].concat(Object.keys(types).map(function (k) { return [k].concat(types[k]); })));
-  new google.visualization.ColumnChart(document.getElementById('byType')).draw(bt, { colors: ['#356854', '#8bb8a0', '#e0a33a'], legend: { position: 'bottom' }, chartArea: { width: '85%', height: '65%' }, vAxis: { format: '0', minValue: 0 } });
+  renderBreakdown();
 
   // Follow-ups
   var f = DATA.followUps;
@@ -228,7 +237,22 @@ function render() {
     : '<div class="empty">No automated changes yet.</div>';
 }
 
-function pillClass(s) { return /^Reject/i.test(s) ? 'rej' : /Job Closed/i.test(s) ? 'closed' : /interview|Pre-Screen|Thread/i.test(s) ? 'int' : ''; }
+function renderBreakdown() {
+  if (!DATA || !chartsReady) return;
+  var bd = DATA.breakdowns[document.getElementById('bdField').value || 'resume'];
+  var rows = bd ? bd.rows : [];
+  if (!rows.length) { document.getElementById('bdChart').innerHTML = '<div class="empty">No applications yet.</div>'; document.getElementById('bdTable').innerHTML = ''; return; }
+  function rate(n, of) { return of ? n / of : 0; }
+  var t = google.visualization.arrayToDataTable([[bd.label, 'Heard back', 'Human contact', 'Interviewed']].concat(rows.map(function (r) {
+    return [r.label + ' (' + r.applied + ')', rate(r.heard, r.applied), rate(r.human, r.applied), rate(r.interviewed, r.applied)];
+  })));
+  new google.visualization.ColumnChart(document.getElementById('bdChart')).draw(t, { colors: ['#8bb8a0', '#356854', '#e0a33a'], legend: { position: 'bottom' }, chartArea: { width: '88%', height: '62%' }, vAxis: { format: 'percent', minValue: 0, maxValue: 1 }, hAxis: { slantedText: rows.length > 4 } });
+  document.getElementById('bdTable').innerHTML = '<table class="bd"><tr><th>' + esc(bd.label) + '</th><th>Applied</th><th>Heard back</th><th>Human contact</th><th>Interviewed</th></tr>' +
+    rows.map(function (r) { return '<tr><td>' + esc(r.label) + '</td><td>' + r.applied + '</td><td>' + pct(r.heard, r.applied) + '</td><td>' + pct(r.human, r.applied) + '</td><td>' + pct(r.interviewed, r.applied) + '</td></tr>'; }).join('') + '</table>';
+}
+document.getElementById('bdField').onchange = renderBreakdown;
+
+function pillClass(s) { return /^Offer/i.test(s) ? 'offer' : /^Withdrew/i.test(s) ? 'closed' : /^Reject/i.test(s) ? 'rej' : /Job Closed/i.test(s) ? 'closed' : /interview|Pre-Screen|Thread/i.test(s) ? 'int' : ''; }
 var DATE_FOR = { 'Pre-Screen Scheduled': 'prescreen', 'Interview Scheduled': 'interview1', 'First interview done': 'interview1', 'Second Interview Done': 'interview2' };
 
 function renderTable() {
@@ -243,7 +267,9 @@ function renderTable() {
     rows.map(function (a) {
       return '<tr><td><b>' + esc(a.company) + '</b><div class="muted">' + esc(a.companyType || '') + (a.fit ? ' · ' + esc(a.fit) + ' fit' : '') + '</div></td>' +
         '<td>' + (a.url ? '<a href="' + esc(a.url) + '" target="_blank">' + esc(a.title) + '</a>' : esc(a.title)) +
-        (a.payMin ? '<div class="muted">$' + Math.round(a.payMin / 1000) + 'k–$' + Math.round(a.payMax / 1000) + 'k</div>' : '') + '</td>' +
+        (a.payMin ? '<div class="muted">$' + Math.round(a.payMin / 1000) + 'k–$' + Math.round(a.payMax / 1000) + 'k</div>' : '') +
+        (a.postingDoc ? '<div class="muted"><a href="' + esc(a.postingDoc) + '" target="_blank">Saved posting</a></div>' : '') +
+        (a.contacts ? '<div class="muted">' + esc(a.contacts) + '</div>' : '') + '</td>' +
         '<td>' + (a.submitted ? esc(new Date(a.submitted).toLocaleDateString()) : '') + '</td>' +
         '<td><span class="pill ' + pillClass(a.status) + '">' + esc(a.status) + '</span></td>' +
         '<td><select data-row="' + a.row + '" data-company="' + esc(a.company) + '" class="statusChange">' + opts(a.status) + '</select></td></tr>';
@@ -276,21 +302,48 @@ document.getElementById('lookup').onclick = function () {
     if (p.payMin) form.payMin.value = p.payMin; if (p.payMax) form.payMax.value = p.payMax;
     var found = ['title', 'company'].filter(function (k) { return p[k]; }).length;
     msg(found ? 'Filled in from the posting (' + p.ats + '). Check the fields before saving.' : 'Couldn’t read this page. Fill the fields in by hand.', found ? 'ok' : 'err');
+    checkDuplicates();
   }).withFailureHandler(function (e) { msg('Lookup failed: ' + e.message, 'err'); }).apiLookupPosting(url);
 };
 
-document.getElementById('save').onclick = function () {
+function dupHtml(list) {
+  return '<b>You’ve applied here before:</b><ul>' + list.map(function (x) {
+    return '<li>' + esc(x.title) + ' at ' + esc(x.company) + ' · ' + (x.submitted ? esc(new Date(x.submitted).toLocaleDateString()) : 'no date') +
+      ' · ' + esc(x.status || '') + (x.sameRole ? ' <b>(same role)</b>' : '') + '</li>';
+  }).join('') + '</ul>';
+}
+function showDups(list) {
+  var w = document.getElementById('dupWarn');
+  w.style.display = list && list.length ? 'block' : 'none';
+  w.innerHTML = list && list.length ? dupHtml(list) : '';
+}
+function checkDuplicates() {
+  if (!form.company.value && !form.url.value) return showDups([]);
+  google.script.run.withSuccessHandler(showDups).apiCheckDuplicates(form.company.value, form.title.value, form.url.value);
+}
+form.company.addEventListener('change', checkDuplicates);
+form.title.addEventListener('change', checkDuplicates);
+
+document.getElementById('save').onclick = function () { saveApp(false); };
+function saveApp(confirmDuplicate) {
   if (!form.title.value || !form.company.value) return msg('Title and company are required.', 'err');
-  var data = {};
+  var data = { confirmDuplicate: confirmDuplicate, savePosting: DATA && DATA.hasPostingDoc && document.getElementById('savePosting').checked };
   ['url', 'title', 'company', 'payMin', 'payMax', 'source', 'companyType', 'fit', 'resume', 'coverLetter', 'status', 'notes'].forEach(function (k) { data[k] = form[k].value; });
   data.submitted = form.submitted.value ? new Date(form.submitted.value).toISOString() : null;
-  msg('Saving…');
-  google.script.run.withSuccessHandler(function (row) {
-    msg('Saved to row ' + row + '.', 'ok');
+  msg(data.savePosting && data.url ? 'Saving and copying the posting…' : 'Saving…');
+  google.script.run.withSuccessHandler(function (r) {
+    if (r.duplicates) {
+      showDups(r.duplicates);
+      if (confirm('You’ve applied to ' + form.company.value + ' before (see the list above the Save button). Log this one anyway?')) return saveApp(true);
+      return msg('Not saved.', 'err');
+    }
+    var posting = !data.savePosting || !data.url ? '' : r.postingDoc ? ' Posting saved to Drive.' : ' Couldn’t save the posting (see activity).';
+    msg('Saved to row ' + r.row + '.' + posting, 'ok');
     var keep = { resume: form.resume.value }; form.reset(); form.resume.value = keep.resume; form.submitted.value = localNow();
+    document.getElementById('savePosting').checked = true; showDups([]);
     load();
   }).withFailureHandler(function (e) { msg('Save failed: ' + e.message, 'err'); }).apiLogApplication(data);
-};
+}
 
 window.addEventListener('resize', function () { clearTimeout(window._rz); window._rz = setTimeout(render, 250); });
 load();

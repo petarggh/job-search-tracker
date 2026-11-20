@@ -13,7 +13,11 @@ var STATUS = {
   REJ_FIRST: 'Rejection First Contact',
   REJ_EMAIL: 'Rejection after Email',
   REJ_FINAL: 'Rejection after final interview',
-  CLOSED: 'Job Closed - No Rejection'
+  CLOSED: 'Job Closed - No Rejection',
+  OFFER: 'Offer Received',
+  OFFER_ACCEPTED: 'Offer Accepted',
+  OFFER_DECLINED: 'Offer Declined',
+  WITHDREW: 'Withdrew'
 };
 
 var STAGE_RANK = {};
@@ -24,9 +28,15 @@ STAGE_RANK[STATUS.PRESCREEN] = 3;
 STAGE_RANK[STATUS.INTERVIEW] = 4;
 STAGE_RANK[STATUS.FIRST_DONE] = 5;
 STAGE_RANK[STATUS.SECOND_DONE] = 6;
+STAGE_RANK[STATUS.OFFER] = 7;
 
+/** Finished one way or another: rejected, closed, offer accepted or declined, or withdrawn. */
 function isClosedStatus(status) {
-  return /^Reject/i.test(status || '') || /^Job Closed/i.test(status || '');
+  return /^(Reject|Job Closed|Offer Accepted|Offer Declined|Withdrew)/i.test(status || '');
+}
+
+function isOfferStatus(status) {
+  return /^Offer/i.test(status || '');
 }
 
 // ---------- Email classification ----------
@@ -84,6 +94,8 @@ function classifyEmail(subject, body) {
 function nextStatus(current, event) {
   current = current || STATUS.NO_ACK;
   if (isClosedStatus(current)) return null;
+  // At offer stage Peter manages the status himself; Gmail.js logs the email instead.
+  if (current === STATUS.OFFER) return null;
   var rank = STAGE_RANK.hasOwnProperty(current) ? STAGE_RANK[current] : 0;
   if (event === 'ack') return current === STATUS.NO_ACK ? STATUS.ACK : null;
   if (event === 'interview') return rank < STAGE_RANK[STATUS.THREAD] ? STATUS.THREAD : null;
@@ -146,7 +158,7 @@ function titleCaseSlug(slug) {
 }
 
 function emptyPosting() {
-  return { title: '', company: '', payMin: null, payMax: null, location: '', remote: null };
+  return { title: '', company: '', payMin: null, payMax: null, location: '', remote: null, description: '' };
 }
 
 function fromAshby(boardJson, id, pageTitle) {
@@ -162,6 +174,7 @@ function fromAshby(boardJson, id, pageTitle) {
     var comps = (job.compensation && job.compensation.summaryComponents) || [];
     var salary = comps.filter(function (c) { return /salary/i.test(c.compensationType || ''); })[0];
     if (salary) { p.payMin = salary.minValue || null; p.payMax = salary.maxValue || null; }
+    p.description = job.descriptionPlain || htmlToText(job.descriptionHtml);
   }
   return p;
 }
@@ -175,6 +188,7 @@ function fromGreenhouse(job, org) {
   p.remote = /remote/i.test(p.location);
   var r = (job.pay_input_ranges || [])[0];
   if (r) { p.payMin = r.min_cents ? r.min_cents / 100 : null; p.payMax = r.max_cents ? r.max_cents / 100 : null; }
+  p.description = htmlToText(job.content);
   return p;
 }
 
@@ -186,6 +200,9 @@ function fromLever(job, org) {
   p.location = (job.categories && job.categories.location) || '';
   p.remote = job.workplaceType === 'remote' || /remote/i.test(p.location);
   if (job.salaryRange) { p.payMin = job.salaryRange.min || null; p.payMax = job.salaryRange.max || null; }
+  p.description = [job.descriptionPlain || htmlToText(job.description)].concat((job.lists || []).map(function (l) {
+    return (l.text || '') + '\n' + htmlToText(l.content);
+  })).concat([job.additionalPlain || htmlToText(job.additional)]).filter(Boolean).join('\n').trim();
   return p;
 }
 
@@ -207,6 +224,7 @@ function fromJsonLd(html) {
     p.location = (loc && loc.address && (loc.address.addressLocality || loc.address.addressRegion)) || (p.remote ? 'Remote' : '');
     var v = job.baseSalary && job.baseSalary.value;
     if (v) { p.payMin = v.minValue || v.value || null; p.payMax = v.maxValue || v.value || null; }
+    p.description = htmlToText(job.description);
     return p;
   }
   var t = String(html || '').match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) ||
@@ -232,30 +250,40 @@ function daysBetween(a, b) {
 }
 
 function hadHumanContact(app) {
-  return !!(app.prescreen || app.interview1) || [STATUS.THREAD, STATUS.PRESCREEN, STATUS.INTERVIEW,
+  return !!(app.prescreen || app.interview1) || isOfferStatus(app.status) || [STATUS.THREAD, STATUS.PRESCREEN, STATUS.INTERVIEW,
     STATUS.FIRST_DONE, STATUS.SECOND_DONE, STATUS.REJ_EMAIL, STATUS.REJ_FINAL].indexOf(app.status) >= 0;
 }
 
 function heardBack(app) {
-  return app.status !== STATUS.NO_ACK || !!app.rejected || hadHumanContact(app);
+  var silent = !app.status || app.status === STATUS.NO_ACK || app.status === STATUS.WITHDREW;
+  return !silent || !!app.rejected || hadHumanContact(app);
 }
 
 /**
  * The path one application took, as Sankey node names. Every path starts at "Applied".
  */
 function journey(app, now) {
+  var s = app.status || '';
+  var rejected = /^Reject/i.test(s);
+  var withdrew = s === STATUS.WITHDREW;
+  var OFFER_END = {};
+  OFFER_END[STATUS.OFFER] = 'Offer (deciding)';
+  OFFER_END[STATUS.OFFER_ACCEPTED] = 'Offer accepted';
+  OFFER_END[STATUS.OFFER_DECLINED] = 'Offer declined';
+  function end(still, rej) { return OFFER_END[s] || (withdrew ? 'Withdrew' : rejected ? rej : still); }
+
   var path = ['Applied'];
   var waited = app.submitted ? daysBetween(app.submitted, now || new Date()) : 0;
-  if (/^Job Closed/i.test(app.status)) return path.concat(['Closed, no answer']);
-  if (!heardBack(app)) return path.concat([waited >= 30 ? 'Ghosted' : 'Waiting']);
+  if (/^Job Closed/i.test(s)) return path.concat(['Closed, no answer']);
+  if (!heardBack(app)) return path.concat([withdrew ? 'Withdrew' : waited >= 30 ? 'Ghosted' : 'Waiting']);
   path.push('Heard back');
-  if (!hadHumanContact(app)) return path.concat([app.rejected || /^Reject/i.test(app.status) ? 'Auto-rejected' : 'Acknowledged only']);
+  if (!hadHumanContact(app)) return path.concat([withdrew ? 'Withdrew' : app.rejected || rejected ? 'Auto-rejected' : 'Acknowledged only']);
   path.push('Human contact');
-  if (!app.prescreen && !app.interview1) return path.concat([/^Reject/i.test(app.status) ? 'Rejected after contact' : 'Talking']);
+  if (!app.prescreen && !app.interview1) return path.concat([end('Talking', 'Rejected after contact')]);
   path.push('Pre-screen');
-  if (!app.interview1) return path.concat([/^Reject/i.test(app.status) ? 'Rejected after screen' : 'Screen pending']);
+  if (!app.interview1) return path.concat([end('Screen pending', 'Rejected after screen')]);
   path.push('Interviews');
-  return path.concat([/^Reject/i.test(app.status) ? 'Rejected after interviews' : 'Still interviewing']);
+  return path.concat([end('Still interviewing', 'Rejected after interviews')]);
 }
 
 function sankeyEdges(apps, now) {
@@ -283,12 +311,120 @@ function followUps(apps, now, followUpDays, ghostDays) {
   return out;
 }
 
+// ---------- Response rates by resume, source, etc. ----------
+
+var BREAKDOWNS = {
+  resume: { label: 'Resume version', key: function (a) { return a.resume || 'Not set'; } },
+  coverLetter: { label: 'Cover letter', key: function (a) {
+    return !a.coverLetter || /^(n\/?a|none|no)$/i.test(String(a.coverLetter).trim()) ? 'No cover letter' : 'Cover letter'; } },
+  source: { label: 'Source', key: function (a) { return a.source || 'Not set'; } },
+  fit: { label: 'Fit', key: function (a) { return a.fit || 'Not set'; } },
+  companyType: { label: 'Company type', key: function (a) { return a.companyType || 'Not set'; } }
+};
+
+/** For each value of a field: how many applied, heard back, got human contact, interviewed. Biggest groups first. */
+function breakdown(apps, field) {
+  var keyFn = BREAKDOWNS[field].key, groups = {};
+  apps.forEach(function (a) {
+    var k = keyFn(a);
+    var g = groups[k] = groups[k] || { label: k, applied: 0, heard: 0, human: 0, interviewed: 0 };
+    g.applied++;
+    if (heardBack(a)) g.heard++;
+    if (hadHumanContact(a)) g.human++;
+    if (a.interview1) g.interviewed++;
+  });
+  return Object.keys(groups).map(function (k) { return groups[k]; })
+    .sort(function (x, y) { return y.applied - x.applied || (x.label < y.label ? -1 : 1); });
+}
+
+function allBreakdowns(apps) {
+  var out = {};
+  Object.keys(BREAKDOWNS).forEach(function (f) { out[f] = { label: BREAKDOWNS[f].label, rows: breakdown(apps, f) }; });
+  return out;
+}
+
+// ---------- Duplicate check ----------
+
+/** Lowercase URL without scheme, www, query or trailing slash. Keeps Greenhouse's gh_jid, which identifies the job. */
+function normalizeUrl(url) {
+  var u = String(url || '').trim().toLowerCase();
+  if (!u) return '';
+  var jid = u.match(/[?&](gh_jid=\d+)/);
+  u = u.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[?#].*$/, '').replace(/\/(application|apply)\/?$/, '').replace(/\/+$/, '');
+  return jid ? u + '?' + jid[1] : u;
+}
+
+function titleKey(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+/** Earlier applications to the same company or the same posting URL. sameRole = same URL or same title. */
+function findDuplicates(apps, company, title, url) {
+  var key = companyKey(company), nu = normalizeUrl(url), tk = titleKey(title);
+  var out = [];
+  apps.forEach(function (a) {
+    var urlMatch = !!nu && (normalizeUrl(a.url) === nu || normalizeUrl(a.url2) === nu);
+    var companyMatch = key.length >= 3 && companyKey(a.company) === key;
+    if (!urlMatch && !companyMatch) return;
+    out.push({ row: a.row, company: a.company, title: a.title, status: a.status, submitted: a.submitted,
+      sameRole: urlMatch || (!!tk && titleKey(a.title) === tk) });
+  });
+  return out;
+}
+
+// ---------- Contacts from email senders ----------
+
+var NOT_A_PERSON = /^(no-?reply|do-?not-?reply|notifications?|jobs|careers|talent|recruiting|recruitment|hiring|hr|people|team|hello|info|support|apply|applications?|candidates?|mailer|bounce)([+._-]|$)/i;
+var ATS_DOMAINS = /(greenhouse\.io|ashbyhq\.com|lever\.co|myworkday(jobs)?\.com|workday\.com|workablemail\.com|workable\.com|smartrecruiters\.com|icims\.com|jobvite\.com|bamboohr\.com|rippling\.com|linkedin\.com|indeed\.com|breezy\.hr|recruitee\.com|teamtailor\.com|jazzhr\.com|applytojob\.com|gem\.com|dover\.com|wellfound\.com|ziprecruiter\.com)$/i;
+
+/** "Jane Doe <jane@acme.com>" -> "Jane Doe <jane@acme.com>", or null for no-reply and ATS senders. */
+function contactFromSender(from) {
+  var s = String(from || '').trim();
+  var m = s.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  var name = m ? m[1].trim() : '', email = (m ? m[2] : s).trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(email)) return null;
+  var local = email.split('@')[0], domain = email.split('@')[1];
+  if (NOT_A_PERSON.test(local) || ATS_DOMAINS.test(domain)) return null;
+  if (/\b(team|careers|recruiting|talent|hiring|jobs|via)\b/i.test(name)) return null;
+  return name ? name + ' <' + email + '>' : email;
+}
+
+/** Adds a contact to a "; "-separated list unless that email is already in it. Returns null if nothing changes. */
+function mergeContacts(existing, contact) {
+  if (!contact) return null;
+  var email = (contact.match(/<([^>]+)>/) || [null, contact])[1].toLowerCase();
+  var cur = String(existing || '');
+  if (cur.toLowerCase().indexOf(email) >= 0) return null;
+  return cur.trim() ? cur.trim().replace(/[;,]\s*$/, '') + '; ' + contact : contact;
+}
+
+// ---------- Posting text ----------
+
+function decodeEntities(s) {
+  return String(s || '').replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(+n); })
+    .replace(/&#x([0-9a-f]+);/gi, function (_, n) { return String.fromCharCode(parseInt(n, 16)); })
+    .replace(/&nbsp;/g, ' ').replace(/&rsquo;|&lsquo;/g, "'").replace(/&rdquo;|&ldquo;/g, '"')
+    .replace(/&mdash;/g, '—').replace(/&ndash;/g, '–').replace(/&bull;/g, '•')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&');
+}
+
+/** Readable plain text from posting HTML: one paragraph or bullet per line. */
+function htmlToText(html) {
+  var h = String(html || '');
+  if (h.indexOf('<') < 0 && /&lt;/.test(h)) h = decodeEntities(h); // Greenhouse escapes its HTML
+  h = h.replace(/<(script|style|noscript|svg|head|nav|footer)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n').replace(/<li[^>]*>/gi, '\n• ')
+    .replace(/<\/(p|div|li|h[1-6]|ul|ol|tr|section|article)>/gi, '\n').replace(/<[^>]+>/g, ' ');
+  return decodeEntities(h).replace(/[ \t ]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{2,}/g, '\n').trim();
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     STATUS: STATUS, isClosedStatus: isClosedStatus, classifyEmail: classifyEmail, nextStatus: nextStatus,
     companyKey: companyKey, matchApplication: matchApplication, parsePostingUrl: parsePostingUrl,
     fromAshby: fromAshby, fromGreenhouse: fromGreenhouse, fromLever: fromLever, fromJsonLd: fromJsonLd,
     parsePayRange: parsePayRange, journey: journey, sankeyEdges: sankeyEdges, followUps: followUps,
-    heardBack: heardBack, hadHumanContact: hadHumanContact, emailExcerpt: emailExcerpt
+    heardBack: heardBack, hadHumanContact: hadHumanContact, emailExcerpt: emailExcerpt,
+    isOfferStatus: isOfferStatus, breakdown: breakdown, allBreakdowns: allBreakdowns, normalizeUrl: normalizeUrl,
+    findDuplicates: findDuplicates, contactFromSender: contactFromSender, mergeContacts: mergeContacts,
+    htmlToText: htmlToText, decodeEntities: decodeEntities
   };
 }

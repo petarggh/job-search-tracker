@@ -31,6 +31,18 @@ var CONFIG = {
     notes: 'Notes'
   },
 
+  // Columns the app uses if they exist. If a header is missing, that feature is skipped.
+  OPTIONAL_HEADERS: {
+    postingDoc: 'Posting Doc',   // link to a saved copy of the job posting
+    contacts: 'Contacts'         // people who emailed about this application
+  },
+
+  POSTING: {
+    FOLDER_NAME: 'Job Postings (tracker)',  // Drive folder for saved postings
+    MIN_CHARS: 300,                         // shorter than this = probably not the real description
+    BACKFILL_MAX: 15                        // postings saved per "save missing postings" run
+  },
+
   // Columns that hold formulas. When a row is added past the pre-filled rows,
   // these formulas are copied down from the row above.
   FORMULA_HEADERS: ['Days to Response', 'Days Waiting', 'date'],

@@ -47,8 +47,12 @@ function syncGmail() {
       return;
     }
     var app = apps[i];
+    recordContact_(app, m, excerpt);
     var status = nextStatus(app.status, event);
-    if (!status) return;
+    if (!status) {
+      if (app.status === STATUS.OFFER) logActivity('Email at offer stage (not changed)', app.company, event + ': "' + subject + '"', m.getDate(), excerpt);
+      return;
+    }
 
     var fields = { status: status };
     if (event === 'rejection' && !app.rejected) fields.rejected = m.getDate();
@@ -75,4 +79,23 @@ function syncGmail() {
   // In dry run, leave mail unprocessed so the live run still sees it.
   if (!CONFIG.GMAIL.DRY_RUN) saveProcessed_(processed);
   return { scanned: messages.length, changes: changes };
+}
+
+/** Adds a human sender to the application's Contacts column, if that column exists. */
+function recordContact_(app, m, excerpt) {
+  if (!('contacts' in app)) return;
+  var merged = mergeContacts(app.contacts, contactFromSender(m.getFrom()));
+  if (!merged) return;
+  var who = contactFromSender(m.getFrom());
+  if (CONFIG.GMAIL.DRY_RUN) {
+    logActivity('Would add contact (dry run)', app.company, who, m.getDate(), excerpt);
+    return;
+  }
+  try {
+    updateApplication(app.row, app.company, { contacts: merged });
+    logActivity('Added contact from email', app.company, who, m.getDate(), excerpt);
+    app.contacts = merged;
+  } catch (e) {
+    logActivity('Skipped contact update', app.company, e.message);
+  }
 }

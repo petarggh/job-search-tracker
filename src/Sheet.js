@@ -23,6 +23,10 @@ function columnMap_(sheet) {
     if (!col) throw new Error('Header "' + CONFIG.HEADERS[field] + '" not found in the data tab.');
     map[field] = col;
   });
+  Object.keys(CONFIG.OPTIONAL_HEADERS || {}).forEach(function (field) {
+    var col = byHeader[CONFIG.OPTIONAL_HEADERS[field]];
+    if (col) map[field] = col;
+  });
   map._byHeader = byHeader;
   return map;
 }
@@ -41,7 +45,9 @@ function readApplications() {
   var apps = [];
   values.forEach(function (row, i) {
     var app = { row: i + 2 };
-    Object.keys(CONFIG.HEADERS).forEach(function (f) { app[f] = toIso_(row[map[f] - 1]); });
+    Object.keys(CONFIG.HEADERS).concat(Object.keys(CONFIG.OPTIONAL_HEADERS || {})).forEach(function (f) {
+      if (map[f]) app[f] = toIso_(row[map[f] - 1]);
+    });
     if (app.company) apps.push(app);
   });
   return apps;
