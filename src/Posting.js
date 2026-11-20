@@ -65,21 +65,40 @@ function savePostingDoc(company, title, url, posting) {
   body.appendParagraph('');
   text.split('\n').forEach(function (line) { if (line.trim()) body.appendParagraph(line); });
   doc.saveAndClose();
-  try {
-    DriveApp.getFileById(doc.getId()).moveTo(postingFolder_());
-  } catch (e) {
-    // Folder is a nicety; the doc stays in My Drive if this fails.
-  }
+  fileIntoPostingFolder_(doc.getId(), company);
   return doc.getUrl();
 }
 
-function postingFolder_() {
+// Uses the Drive API advanced service, which works with the narrow drive.file scope
+// (only files this app created). DriveApp would need access to all of Drive.
+function postingFolderId_() {
   var props = PropertiesService.getUserProperties();
   var id = props.getProperty('postingFolderId');
-  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* deleted; make a new one */ } }
-  var folder = DriveApp.createFolder(CONFIG.POSTING.FOLDER_NAME);
-  props.setProperty('postingFolderId', folder.getId());
-  return folder;
+  if (id) {
+    try { if (!Drive.Files.get(id, { fields: 'id,trashed' }).trashed) return id; } catch (e) { /* gone; make a new one */ }
+  }
+  id = Drive.Files.create({ name: CONFIG.POSTING.FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }).id;
+  props.setProperty('postingFolderId', id);
+  return id;
+}
+
+/** Moves a doc into the postings folder. Returns true if it's there. Logs and returns false on failure; the doc stays put. */
+function fileIntoPostingFolder_(fileId, company) {
+  try {
+    var folderId = postingFolderId_();
+    var parents = Drive.Files.get(fileId, { fields: 'parents' }).parents || [];
+    if (parents.indexOf(folderId) >= 0) return true;
+    Drive.Files.update({}, fileId, null, { addParents: folderId, removeParents: parents.join(','), fields: 'id' });
+    return true;
+  } catch (e) {
+    logActivity('Posting folder move failed', company || '', e.message);
+    return false;
+  }
+}
+
+function docIdFromUrl_(url) {
+  var m = String(url || '').match(/[?&]id=([\w-]+)|\/d\/([\w-]+)/);
+  return m ? (m[1] || m[2]) : null;
 }
 
 /** Looks up and saves the posting for one application row. Returns the doc URL or null. Never throws. */
@@ -103,5 +122,7 @@ function saveMissingPostings() {
   var todo = apps.filter(function (a) { return a.url && !a.postingDoc && !isClosedStatus(a.status); }).slice(0, CONFIG.POSTING.BACKFILL_MAX);
   var saved = 0;
   todo.forEach(function (a) { if (savePostingForApp_(a.row, a.company, a.title, a.url)) saved++; });
+  // Also file any earlier copies that didn't make it into the folder.
+  apps.forEach(function (a) { var id = docIdFromUrl_(a.postingDoc); if (id) fileIntoPostingFolder_(id, a.company); });
   return { tried: todo.length, saved: saved };
 }

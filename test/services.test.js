@@ -214,7 +214,7 @@ test('offer-stage emails are logged, not applied', () => {
 test('logging with a URL saves the posting to a Doc and links it', () => {
   HEADERS_IN_USE = WIDE;
   const rows = wideRows();
-  const docs = [];
+  const docs = [], moves = [];
   const fakeDoc = (name) => {
     const paras = [];
     // Matches Apps Script: setText returns nothing; setHeading returns the paragraph.
@@ -227,7 +227,11 @@ test('logging with a URL saves the posting to a Doc and links it', () => {
     content: '&lt;p&gt;' + 'You will own the roadmap for our help desk product. '.repeat(10) + '&lt;/p&gt;&lt;ul&gt;&lt;li&gt;5+ years&lt;/li&gt;&lt;/ul&gt;' };
   const { ctx } = load(rows, [], {
     DocumentApp: { create: fakeDoc, ParagraphHeading: { HEADING1: 'H1' } },
-    DriveApp: { getFileById: () => ({ moveTo() {} }), createFolder: () => ({ getId: () => 'f1' }), getFolderById: () => ({}) },
+    Drive: { Files: {
+      create: (f) => { moves.push(['create', f.name]); return { id: 'folder1' }; },
+      get: (id) => id === 'folder1' ? { trashed: false } : { parents: ['root'] },
+      update: (_, id, __, opt) => { moves.push(['move', id, opt.addParents, opt.removeParents]); return {}; }
+    } },
     UrlFetchApp: { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify(gh) }) },
     Utilities: { formatDate: () => 'Nov 19, 2026' }
   });
@@ -237,6 +241,7 @@ test('logging with a URL saves the posting to a Doc and links it', () => {
   assert.strictEqual(rows[3][WIDE.indexOf('Posting Doc')], 'https://docs.google.com/document/d/doc1');
   assert.strictEqual(docs[0].name, 'Posting - Help Scout - Senior PM');
   assert.ok(docs[0].paras.some(p => /^• 5\+ years$/.test(p.t)), 'bullets kept');
+  assert.deepStrictEqual(moves, [['create', 'Job Postings (tracker)'], ['move', 'doc1', 'folder1', 'root']]);
   HEADERS_IN_USE = HEADERS;
 });
 
