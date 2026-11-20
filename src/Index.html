@@ -301,7 +301,7 @@ document.getElementById('lookup').onclick = function () {
     ['title', 'company', 'location'].forEach(function (k) { if (p[k]) form[k].value = p[k]; });
     if (p.payMin) form.payMin.value = p.payMin; if (p.payMax) form.payMax.value = p.payMax;
     var found = ['title', 'company'].filter(function (k) { return p[k]; }).length;
-    msg(found ? 'Filled in from the posting (' + p.ats + '). Check the fields before saving.' : 'Couldn’t read this page. Fill the fields in by hand.', found ? 'ok' : 'err');
+    msg(found ? 'Filled in from the posting (' + p.ats + '). Check the fields before saving.' + (p.payNote ? ' ' + p.payNote : '') : 'Couldn’t read this page. Fill the fields in by hand.', found ? 'ok' : 'err');
     checkDuplicates();
   }).withFailureHandler(function (e) { msg('Lookup failed: ' + e.message, 'err'); }).apiLookupPosting(url);
 };

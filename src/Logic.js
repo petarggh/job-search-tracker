@@ -233,12 +233,44 @@ function fromJsonLd(html) {
   return p;
 }
 
-/** Finds the first "$184,000 - $200,000" style range in text. */
-function parsePayRange(text) {
-  var m = String(text || '').match(/\$\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?\s?[kK])\s*(?:-|–|—|to)\s*\$?\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?\s?[kK])/);
-  if (!m) return null;
+var PAY_AMOUNT = '(\\d{2,3}(?:,\\d{3})+|\\d{2,3}(?:\\.\\d)?\\s?[kK])';
+// "$184,000 - $200,000", "$150k–$175k", "$120,000/year - $190,000/year", "$120,000 USD to $190,000 USD"
+var PAY_UNIT = '\\s*(?:USD)?\\s*(?:\\/\\s?(?:year|yr|annum)|per year|annually|a year)?\\s*';
+var PAY_RANGE_RE = '\\$\\s?' + PAY_AMOUNT + PAY_UNIT + '(?:-|–|—|to)\\s*\\$?\\s?' + PAY_AMOUNT;
+
+/** Every distinct pay range in the text, in order. */
+function parsePayRanges(text) {
   function num(s) { s = s.replace(/[,\s]/g, ''); return /k$/i.test(s) ? parseFloat(s) * 1000 : parseFloat(s); }
-  return { min: num(m[1]), max: num(m[2]) };
+  var re = new RegExp(PAY_RANGE_RE, 'g'), m, out = [], seen = {};
+  while ((m = re.exec(String(text || '')))) {
+    var r = { min: num(m[1]), max: num(m[2]) };
+    if (r.max < r.min || seen[r.min + '-' + r.max]) continue;
+    seen[r.min + '-' + r.max] = true;
+    out.push(r);
+  }
+  return out;
+}
+
+/** The pay range, only if the text lists exactly one. Several (e.g. by location) is ambiguous, so null. */
+function parsePayRange(text) {
+  var all = parsePayRanges(text);
+  return all.length === 1 ? all[0] : null;
+}
+
+function formatPayRange(r) {
+  return '$' + Math.round(r.min / 1000) + 'k–$' + Math.round(r.max / 1000) + 'k';
+}
+
+/**
+ * How to lay out one line of posting text in a Doc: a section heading, a bullet,
+ * a numbered item, or a plain paragraph. Headings are short lines with no closing punctuation.
+ */
+function postingLineKind(line) {
+  var t = String(line || '').trim(), m;
+  if ((m = t.match(/^(?:[-•*·▪●]|–)\s+(.*)$/))) return { kind: 'bullet', text: m[1] };
+  if ((m = t.match(/^(\d{1,2})[.)]\s+(.*)$/))) return { kind: 'number', text: m[1] + '. ' + m[2] };
+  if (t.length <= 60 && t.split(/\s+/).length <= 8 && !/[.,;!?]$/.test(t) && !/^\$/.test(t)) return { kind: 'heading', text: t.replace(/:$/, '') };
+  return { kind: 'para', text: t };
 }
 
 // ---------- Stats for the web app ----------
@@ -421,7 +453,7 @@ if (typeof module !== 'undefined') {
     STATUS: STATUS, isClosedStatus: isClosedStatus, classifyEmail: classifyEmail, nextStatus: nextStatus,
     companyKey: companyKey, matchApplication: matchApplication, parsePostingUrl: parsePostingUrl,
     fromAshby: fromAshby, fromGreenhouse: fromGreenhouse, fromLever: fromLever, fromJsonLd: fromJsonLd,
-    parsePayRange: parsePayRange, journey: journey, sankeyEdges: sankeyEdges, followUps: followUps,
+    parsePayRange: parsePayRange, parsePayRanges: parsePayRanges, formatPayRange: formatPayRange, postingLineKind: postingLineKind, journey: journey, sankeyEdges: sankeyEdges, followUps: followUps,
     heardBack: heardBack, hadHumanContact: hadHumanContact, emailExcerpt: emailExcerpt,
     isOfferStatus: isOfferStatus, breakdown: breakdown, allBreakdowns: allBreakdowns, normalizeUrl: normalizeUrl,
     findDuplicates: findDuplicates, contactFromSender: contactFromSender, mergeContacts: mergeContacts,

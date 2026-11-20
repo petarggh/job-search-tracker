@@ -218,15 +218,15 @@ test('logging with a URL saves the posting to a Doc and links it', () => {
   const fakeDoc = (name) => {
     const paras = [];
     // Matches Apps Script: setText returns nothing; setHeading returns the paragraph.
-    const para = (t) => { const p = { t, setHeading: () => p, setText: (x) => { p.t = x; } }; paras.push(p); return p; };
+    const para = (t) => { const p = { t, setHeading: () => p, setGlyphType: () => p, setIndentStart: () => p, setIndentFirstLine: () => p, setText: (x) => { p.t = x; } }; paras.push(p); return p; };
     para('');
-    const d = { name, paras, getBody: () => ({ getParagraphs: () => paras, appendParagraph: para }), saveAndClose() {}, getId: () => 'doc1', getUrl: () => 'https://docs.google.com/document/d/doc1' };
+    const d = { name, paras, getBody: () => ({ getParagraphs: () => paras, appendParagraph: para, appendListItem: (t) => { const p = para(t); p.list = true; return p; } }), saveAndClose() {}, getId: () => 'doc1', getUrl: () => 'https://docs.google.com/document/d/doc1' };
     docs.push(d); return d;
   };
   const gh = { title: 'Senior PM', company_name: 'Help Scout', location: { name: 'Remote' },
     content: '&lt;p&gt;' + 'You will own the roadmap for our help desk product. '.repeat(10) + '&lt;/p&gt;&lt;ul&gt;&lt;li&gt;5+ years&lt;/li&gt;&lt;/ul&gt;' };
   const { ctx } = load(rows, [], {
-    DocumentApp: { openById: (id) => fakeDoc(created.find(f => f.id === id).name), ParagraphHeading: { HEADING1: 'H1' } },
+    DocumentApp: { openById: (id) => fakeDoc(created.find(f => f.id === id).name), ParagraphHeading: { HEADING1: 'H1', HEADING2: 'H2' }, GlyphType: { BULLET: 'b' } },
     Drive: { Files: {
       create: (f) => { const id = f.mimeType.endsWith('folder') ? 'folder1' : 'doc1'; created.push({ id, ...f }); return { id }; },
       get: () => ({ trashed: false })
@@ -239,7 +239,7 @@ test('logging with a URL saves the posting to a Doc and links it', () => {
   assert.strictEqual(r.postingDoc, 'https://docs.google.com/document/d/doc1');
   assert.strictEqual(rows[3][WIDE.indexOf('Posting Doc')], 'https://docs.google.com/document/d/doc1');
   assert.strictEqual(docs[0].name, 'Posting - Help Scout - Senior PM');
-  assert.ok(docs[0].paras.some(p => /^• 5\+ years$/.test(p.t)), 'bullets kept');
+  assert.ok(docs[0].paras.some(p => p.list && p.t === '5+ years'), 'bullets become list items');
   assert.strictEqual(JSON.stringify(created.map(f => [f.name, f.parents || null])), JSON.stringify([['Job Postings (tracker)', null], ['Posting - Help Scout - Senior PM', ['folder1']]]));
   HEADERS_IN_USE = HEADERS;
 });

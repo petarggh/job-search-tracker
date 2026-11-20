@@ -94,6 +94,23 @@ test('parses pay ranges written in text', () => {
   assert.deepStrictEqual(L.parsePayRange('The salary range is $184,000 - 200,000 for this role'), { min: 184000, max: 200000 });
   assert.deepStrictEqual(L.parsePayRange('Pay: $150k–$175k'), { min: 150000, max: 175000 });
   assert.strictEqual(L.parsePayRange('Competitive pay'), null);
+  // Vetcove: US range then a Colorado range. Ambiguous, so no single answer.
+  const vetcove = 'The typical base pay range for this role across the U.S. is: $120,000/year - $190,000/year + bonus. For Colorado, the salary range is: $110,000 - $180,000 + bonus.';
+  assert.deepStrictEqual(L.parsePayRanges(vetcove), [{ min: 120000, max: 190000 }, { min: 110000, max: 180000 }]);
+  assert.strictEqual(L.parsePayRange(vetcove), null);
+  assert.deepStrictEqual(L.parsePayRange('$150,000 USD to $170,000 USD per year. Range: $150,000 - $170,000'), { min: 150000, max: 170000 }, 'repeats are one range');
+});
+
+test('posting lines become headings, bullets, numbered items or paragraphs', () => {
+  const k = (s) => L.postingLineKind(s).kind;
+  assert.strictEqual(k('What You’ll Do'), 'heading');
+  assert.strictEqual(k('Benefits (Full Time Roles)'), 'heading');
+  assert.strictEqual(k('Requirements:'), 'heading');
+  assert.deepStrictEqual(L.postingLineKind(' - Equity'), { kind: 'bullet', text: 'Equity' });
+  assert.strictEqual(k('• 100% remote within the USA'), 'bullet');
+  assert.deepStrictEqual(L.postingLineKind(' 1. Our job listings are exclusive.'), { kind: 'number', text: '1. Our job listings are exclusive.' });
+  assert.strictEqual(k('Please note we are unable to sponsor work visas at this time.'), 'para');
+  assert.strictEqual(k('As a Product Manager, you’ll work closely with engineers, onboarding specialists, and support teams to bridge the gap'), 'para');
 });
 
 test('journeys and Sankey edges', () => {

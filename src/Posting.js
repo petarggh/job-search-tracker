@@ -36,12 +36,17 @@ function lookupPosting(url) {
     p = p || ld;
     ['title', 'company', 'location', 'description'].forEach(function (k) { if (!p[k]) p[k] = ld[k]; });
     if (p.remote === null) p.remote = ld.remote;
-    if (p.payMin === null) {
-      var pay = (ld.payMin !== null) ? { min: ld.payMin, max: ld.payMax } : parsePayRange(html.replace(/<[^>]+>/g, ' '));
-      if (pay) { p.payMin = pay.min; p.payMax = pay.max; }
-    }
   }
   if (!p.description && html) p.description = htmlToText(html).slice(0, 20000); // last resort: page text
+  if (p.payMin === null) {
+    if (ld && ld.payMin !== null) { p.payMin = ld.payMin; p.payMax = ld.payMax; }
+    else {
+      // Search the description text; the raw page can repeat it inside embedded JSON.
+      var ranges = parsePayRanges(p.description || htmlToText(html));
+      if (ranges.length === 1) { p.payMin = ranges[0].min; p.payMax = ranges[0].max; }
+      else if (ranges.length > 1) p.payNote = 'Several pay ranges listed (' + ranges.map(formatPayRange).join(', ') + '). Fill in the one that applies to you.';
+    }
+  }
   p.ats = ref.ats;
   p.url = url;
   return p;
@@ -59,11 +64,18 @@ function savePostingDoc(company, title, url, posting) {
   var head = body.getParagraphs()[0];
   head.setText(title); // setText returns nothing in Apps Script, so no chaining
   head.setHeading(DocumentApp.ParagraphHeading.HEADING1);
-  var pay = posting.payMin ? ' · $' + Math.round(posting.payMin / 1000) + 'k–$' + Math.round((posting.payMax || posting.payMin) / 1000) + 'k' : '';
+  var pay = posting.payMin ? ' · ' + formatPayRange({ min: posting.payMin, max: posting.payMax || posting.payMin }) : '';
   body.appendParagraph(company + (posting.location ? ' · ' + posting.location : '') + pay);
+  if (posting.payNote) body.appendParagraph(posting.payNote);
   body.appendParagraph('Saved ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMM d, yyyy') + ' from ' + url);
-  body.appendParagraph('');
-  text.split('\n').forEach(function (line) { if (line.trim()) body.appendParagraph(line); });
+  text.split('\n').forEach(function (line) {
+    if (!line.trim()) return;
+    var l = postingLineKind(line);
+    if (l.kind === 'heading') body.appendParagraph(l.text).setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    else if (l.kind === 'bullet') body.appendListItem(l.text).setGlyphType(DocumentApp.GlyphType.BULLET);
+    else if (l.kind === 'number') body.appendParagraph(l.text).setIndentStart(18).setIndentFirstLine(18);
+    else body.appendParagraph(l.text);
+  });
   var link = doc.getUrl();
   doc.saveAndClose();
   return link;
