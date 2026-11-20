@@ -217,7 +217,8 @@ test('logging with a URL saves the posting to a Doc and links it', () => {
   const docs = [];
   const fakeDoc = (name) => {
     const paras = [];
-    const para = (t) => { const p = { t, setHeading: () => p, setItalic: () => p, setText: (x) => { p.t = x; return p; } }; paras.push(p); return p; };
+    // Matches Apps Script: setText returns nothing; setHeading returns the paragraph.
+    const para = (t) => { const p = { t, setHeading: () => p, setText: (x) => { p.t = x; } }; paras.push(p); return p; };
     para('');
     const d = { name, paras, getBody: () => ({ getParagraphs: () => paras, appendParagraph: para }), saveAndClose() {}, getId: () => 'doc1', getUrl: () => 'https://docs.google.com/document/d/doc1' };
     docs.push(d); return d;

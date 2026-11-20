@@ -56,12 +56,14 @@ function savePostingDoc(company, title, url, posting) {
   if (text.length < CONFIG.POSTING.MIN_CHARS) return null;
   var doc = DocumentApp.create('Posting - ' + company + ' - ' + title);
   var body = doc.getBody();
-  body.getParagraphs()[0].setText(title).setHeading(DocumentApp.ParagraphHeading.HEADING1);
+  var head = body.getParagraphs()[0];
+  head.setText(title); // setText returns nothing in Apps Script, so no chaining
+  head.setHeading(DocumentApp.ParagraphHeading.HEADING1);
   var pay = posting.payMin ? ' · $' + Math.round(posting.payMin / 1000) + 'k–$' + Math.round((posting.payMax || posting.payMin) / 1000) + 'k' : '';
   body.appendParagraph(company + (posting.location ? ' · ' + posting.location : '') + pay);
-  body.appendParagraph('Saved ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMM d, yyyy') + ' from ' + url).setItalic(true);
-  body.appendParagraph('').setItalic(false);
-  text.split('\n').forEach(function (line) { if (line.trim()) body.appendParagraph(line).setItalic(false); });
+  body.appendParagraph('Saved ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMM d, yyyy') + ' from ' + url);
+  body.appendParagraph('');
+  text.split('\n').forEach(function (line) { if (line.trim()) body.appendParagraph(line); });
   doc.saveAndClose();
   try {
     DriveApp.getFileById(doc.getId()).moveTo(postingFolder_());
