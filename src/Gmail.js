@@ -78,7 +78,10 @@ function syncGmail() {
 
   // In dry run, leave mail unprocessed so the live run still sees it.
   if (!CONFIG.GMAIL.DRY_RUN) saveProcessed_(processed);
-  return { scanned: messages.length, changes: changes };
+
+  var postingsSaved = 0;
+  try { postingsSaved = autoSaveNewPostings(); } catch (e) { logActivity('Posting auto-save failed', '', e.message); }
+  return { scanned: messages.length, changes: changes, postingsSaved: postingsSaved };
 }
 
 /** Adds a human sender to the application's Contacts column, if that column exists. */

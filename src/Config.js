@@ -40,7 +40,8 @@ var CONFIG = {
   POSTING: {
     FOLDER_NAME: 'Job Postings (tracker)',  // Drive folder for saved postings
     MIN_CHARS: 300,                         // shorter than this = probably not the real description
-    BACKFILL_MAX: 15                        // postings saved per "save missing postings" run
+    BACKFILL_MAX: 15,                       // postings saved per "save missing postings" run
+    AUTO_MAX: 5                             // postings saved per hourly sync (rows logged elsewhere, e.g. by Claude)
   },
 
   // Columns that hold formulas. When a row is added past the pre-filled rows,

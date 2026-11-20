@@ -24,7 +24,8 @@ function onOpen() {
 
 function menuSyncGmail() {
   var r = syncGmail();
-  SpreadsheetApp.getUi().alert('Scanned ' + r.scanned + ' new emails. ' + r.changes.length + ' application(s) updated. Details are in the "' + CONFIG.ACTIVITY_TAB + '" tab.');
+  SpreadsheetApp.getUi().alert('Scanned ' + r.scanned + ' new emails. ' + r.changes.length + ' application(s) updated.' +
+    (r.postingsSaved ? ' Saved ' + r.postingsSaved + ' job posting(s) to Drive.' : '') + ' Details are in the "' + CONFIG.ACTIVITY_TAB + '" tab.');
 }
 
 function menuForgetProcessed() {

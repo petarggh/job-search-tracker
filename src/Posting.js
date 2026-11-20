@@ -123,6 +123,28 @@ function savePostingForApp_(row, company, title, url) {
   }
 }
 
+/**
+ * Runs with the hourly sync: saves postings for new rows that have a URL but no saved copy,
+ * such as rows Claude wrote through the Sheets connector. Each URL is tried only once,
+ * so a page that can't be read isn't retried (and logged) every hour. The menu item retries.
+ */
+function autoSaveNewPostings() {
+  var apps = readApplications();
+  if (!apps.length || !('postingDoc' in apps[0])) return 0;
+  var props = PropertiesService.getUserProperties();
+  var tried = JSON.parse(props.getProperty('postingAttempts') || '[]');
+  var todo = apps.filter(function (a) {
+    return a.url && !a.postingDoc && !isClosedStatus(a.status) && tried.indexOf(normalizeUrl(a.url)) < 0;
+  }).slice(0, CONFIG.POSTING.AUTO_MAX);
+  var saved = 0;
+  todo.forEach(function (a) {
+    tried.push(normalizeUrl(a.url));
+    props.setProperty('postingAttempts', JSON.stringify(tried.slice(-500)));
+    if (savePostingForApp_(a.row, a.company, a.title, a.url)) saved++;
+  });
+  return saved;
+}
+
 /** Menu: save postings for open applications that have a URL but no saved copy yet. */
 function saveMissingPostings() {
   var apps = readApplications();

@@ -256,3 +256,21 @@ test('apiGetData includes response-rate breakdowns by resume', () => {
   assert.strictEqual(b.human, 1);
   assert.strictEqual(d.hasPostingDoc, false);
 });
+
+test('hourly sync saves postings for rows logged elsewhere, trying each URL once', () => {
+  HEADERS_IN_USE = WIDE;
+  const rows = wideRows();
+  rows[1][HEADERS.indexOf('Url')] = 'https://jobs.lever.co/vetcove/11111111-2222-3333-4444-555555555555';
+  let fetches = 0;
+  const { ctx, sheets } = load(rows, [], {
+    UrlFetchApp: { fetch: () => { fetches++; return { getResponseCode: () => 404, getContentText: () => '' }; } }
+  });
+  ctx.CONFIG.GMAIL.DRY_RUN = false;
+  assert.strictEqual(ctx.syncGmail().postingsSaved, 0);
+  assert.ok(fetches > 0, 'tried the URL');
+  assert.match(sheets.activity.getRange(2, 2).getValue(), /Posting not saved/);
+  const before = fetches;
+  ctx.syncGmail();
+  assert.strictEqual(fetches, before, 'not retried on the next sync');
+  HEADERS_IN_USE = HEADERS;
+});
