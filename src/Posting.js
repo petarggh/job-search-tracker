@@ -54,7 +54,7 @@ function lookupPosting(url) {
 function savePostingDoc(company, title, url, posting) {
   var text = String(posting && posting.description || '').slice(0, 60000);
   if (text.length < CONFIG.POSTING.MIN_CHARS) return null;
-  var doc = DocumentApp.create('Posting - ' + company + ' - ' + title);
+  var doc = DocumentApp.openById(createPostingFile_('Posting - ' + company + ' - ' + title, company));
   var body = doc.getBody();
   var head = body.getParagraphs()[0];
   head.setText(title); // setText returns nothing in Apps Script, so no chaining
@@ -64,9 +64,9 @@ function savePostingDoc(company, title, url, posting) {
   body.appendParagraph('Saved ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMM d, yyyy') + ' from ' + url);
   body.appendParagraph('');
   text.split('\n').forEach(function (line) { if (line.trim()) body.appendParagraph(line); });
+  var link = doc.getUrl();
   doc.saveAndClose();
-  fileIntoPostingFolder_(doc.getId(), company);
-  return doc.getUrl();
+  return link;
 }
 
 // Uses the Drive API advanced service, which works with the narrow drive.file scope
@@ -82,23 +82,19 @@ function postingFolderId_() {
   return id;
 }
 
-/** Moves a doc into the postings folder. Returns true if it's there. Logs and returns false on failure; the doc stays put. */
-function fileIntoPostingFolder_(fileId, company) {
+/**
+ * Creates an empty Google Doc inside the postings folder and returns its ID.
+ * It must be created through the Drive API: drive.file can't see docs made by DocumentApp.create.
+ * If the folder can't be used, the doc goes in My Drive and the reason is logged.
+ */
+function createPostingFile_(name, company) {
+  var meta = { name: name, mimeType: 'application/vnd.google-apps.document' };
   try {
-    var folderId = postingFolderId_();
-    var parents = Drive.Files.get(fileId, { fields: 'parents' }).parents || [];
-    if (parents.indexOf(folderId) >= 0) return true;
-    Drive.Files.update({}, fileId, null, { addParents: folderId, removeParents: parents.join(','), fields: 'id' });
-    return true;
+    meta.parents = [postingFolderId_()];
   } catch (e) {
-    logActivity('Posting folder move failed', company || '', e.message);
-    return false;
+    logActivity('Posting folder unavailable', company || '', e.message);
   }
-}
-
-function docIdFromUrl_(url) {
-  var m = String(url || '').match(/[?&]id=([\w-]+)|\/d\/([\w-]+)/);
-  return m ? (m[1] || m[2]) : null;
+  return Drive.Files.create(meta).id;
 }
 
 /** Looks up and saves the posting for one application row. Returns the doc URL or null. Never throws. */
@@ -122,7 +118,5 @@ function saveMissingPostings() {
   var todo = apps.filter(function (a) { return a.url && !a.postingDoc && !isClosedStatus(a.status); }).slice(0, CONFIG.POSTING.BACKFILL_MAX);
   var saved = 0;
   todo.forEach(function (a) { if (savePostingForApp_(a.row, a.company, a.title, a.url)) saved++; });
-  // Also file any earlier copies that didn't make it into the folder.
-  apps.forEach(function (a) { var id = docIdFromUrl_(a.postingDoc); if (id) fileIntoPostingFolder_(id, a.company); });
   return { tried: todo.length, saved: saved };
 }
