@@ -48,6 +48,7 @@ var CONFIG = {
   // these formulas are copied down from the row above.
   FORMULA_HEADERS: ['Days to Response', 'Days Waiting', 'date'],
 
+  // Only used until a row has a resume: the app suggests the resume from the latest application.
   DEFAULT_RESUME: 'Peter.Owen-Resume-2026.11.16',
 
   GMAIL: {

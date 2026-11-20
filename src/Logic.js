@@ -375,6 +375,15 @@ function allBreakdowns(apps) {
   return out;
 }
 
+/** Resume used on the most recently submitted application, or the fallback. Peter revises it often. */
+function latestResume(apps, fallback) {
+  var best = null;
+  apps.forEach(function (a) {
+    if (a.resume && a.submitted && (!best || new Date(a.submitted) > new Date(best.submitted))) best = a;
+  });
+  return best ? best.resume : fallback;
+}
+
 // ---------- Duplicate check ----------
 
 /** Lowercase URL without scheme, www, query or trailing slash. Keeps Greenhouse's gh_jid, which identifies the job. */
@@ -456,7 +465,7 @@ if (typeof module !== 'undefined') {
     parsePayRange: parsePayRange, parsePayRanges: parsePayRanges, formatPayRange: formatPayRange, postingLineKind: postingLineKind, journey: journey, sankeyEdges: sankeyEdges, followUps: followUps,
     heardBack: heardBack, hadHumanContact: hadHumanContact, emailExcerpt: emailExcerpt,
     isOfferStatus: isOfferStatus, breakdown: breakdown, allBreakdowns: allBreakdowns, normalizeUrl: normalizeUrl,
-    findDuplicates: findDuplicates, contactFromSender: contactFromSender, mergeContacts: mergeContacts,
+    findDuplicates: findDuplicates, latestResume: latestResume, contactFromSender: contactFromSender, mergeContacts: mergeContacts,
     htmlToText: htmlToText, decodeEntities: decodeEntities
   };
 }

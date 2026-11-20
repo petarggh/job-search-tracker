@@ -194,3 +194,9 @@ test('posting HTML becomes readable text, including Greenhouse escaped HTML and 
   const lv = L.fromLever({ text: 'PM', descriptionPlain: 'Intro', lists: [{ text: 'Requirements', content: '<li>SQL</li>' }], additionalPlain: 'Benefits' }, 'acme');
   assert.strictEqual(lv.description, 'Intro\nRequirements\n• SQL\nBenefits');
 });
+
+test('suggests the resume from the most recent application', () => {
+  const apps = [{ resume: 'R-11.16', submitted: '2026-11-17T10:00:00Z' }, { resume: 'R-11.19', submitted: '2026-11-19T21:51:00Z' }, { resume: '', submitted: '2026-11-20T08:00:00Z' }];
+  assert.strictEqual(L.latestResume(apps, 'fallback'), 'R-11.19');
+  assert.strictEqual(L.latestResume([], 'fallback'), 'fallback');
+});

@@ -72,7 +72,7 @@ function apiGetData() {
     breakdowns: allBreakdowns(apps),
     statuses: Object.keys(STATUS).map(function (k) { return STATUS[k]; }),
     now: now.toISOString(),
-    defaultResume: CONFIG.DEFAULT_RESUME,
+    defaultResume: latestResume(apps, CONFIG.DEFAULT_RESUME),
     hasPostingDoc: apps.length ? ('postingDoc' in apps[0]) : false
   };
 }
@@ -91,13 +91,14 @@ function apiLookupPosting(url) {
  */
 function apiLogApplication(form) {
   if (!form || !form.company || !form.title) throw new Error('Company and title are required.');
+  var existing = readApplications();
   if (!form.confirmDuplicate) {
-    var dups = findDuplicates(readApplications(), form.company, form.title, form.url);
+    var dups = findDuplicates(existing, form.company, form.title, form.url);
     if (dups.length) return { duplicates: dups };
   }
   var fields = {
     title: form.title, company: form.company, status: form.status || STATUS.NO_ACK,
-    url: form.url || '', resume: form.resume || CONFIG.DEFAULT_RESUME, coverLetter: form.coverLetter || '',
+    url: form.url || '', resume: form.resume || latestResume(existing, CONFIG.DEFAULT_RESUME), coverLetter: form.coverLetter || '',
     submitted: form.submitted ? new Date(form.submitted) : new Date(),
     source: form.source || '', companyType: form.companyType || '', fit: form.fit || '',
     payMin: form.payMin ? Number(form.payMin) : '', payMax: form.payMax ? Number(form.payMax) : '',
