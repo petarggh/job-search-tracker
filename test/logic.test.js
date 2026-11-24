@@ -200,3 +200,15 @@ test('suggests the resume from the most recent application', () => {
   assert.strictEqual(L.latestResume(apps, 'fallback'), 'R-11.19');
   assert.strictEqual(L.latestResume([], 'fallback'), 'fallback');
 });
+
+test('"won\u2019t be moving forward" is a rejection, even with "thank you for your interest"', () => {
+  const body = 'Hi Peter, Thank you for your interest in joining the party. I wanted to let you know that we\u2019ve decided that we won\u2019t be moving forward with your application for the Staff Product Manager role at this time.';
+  assert.strictEqual(L.classifyEmail('GoodParty.org Follow up', body), 'rejection');
+  for (const phrase of ["we won't be moving forward", 'we are not able to move forward with your candidacy', "we aren't moving forward",
+    'we will not be advancing your application', "we've chosen not to move forward", 'we have decided to not move forward',
+    'we will be moving forward with other applicants', 'the team has decided not to proceed with your application']) {
+    assert.strictEqual(L.classifyEmail('Update', 'Thank you for your interest. ' + phrase + '.'), 'rejection', phrase);
+  }
+  // Still not a rejection when it's conditional.
+  assert.strictEqual(L.classifyEmail('Received', "Thanks for applying! If we won't be moving forward, we'll let you know."), 'ack');
+});

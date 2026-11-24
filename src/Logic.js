@@ -44,7 +44,12 @@ function isOfferStatus(status) {
 var EMAIL_RULES = [
   { type: 'rejection', patterns: [
     /not (?:be )?moving forward/i, /decided (?:not )?to (?:move|proceed) forward with (?:other|another)/i,
-    /(?:pursue|move forward with) other candidates/i, /unfortunately/i, /will not be (?:moving|proceeding)/i,
+    /(?:pursu(?:e|ing)|mov(?:e|ing) forward with|proceed(?:ing)? with) (?:other|another|a different) (?:candidates?|applicants?|individuals?)/i,
+    /unfortunately/i, /will not be (?:moving|proceeding)/i,
+    // "won't be moving forward", "aren't moving forward", "not able to move forward", "chosen not to proceed", "decided to not move ahead"
+    /(?:\bnot|n['’]t|\bunable)\s+(?:be\s+|able\s+)?(?:to\s+)?(?:mov(?:e|ing)|proceed(?:ing)?|advanc(?:e|ing)|progress(?:ing)?)\s+(?:forward|ahead)/i,
+    // "will not be advancing your application", "decided not to proceed with your candidacy"
+    /(?:\bnot|n['’]t|\bunable)\s+(?:be\s+|able\s+)?(?:to\s+)?(?:proceed(?:ing)?|advanc(?:e|ing)|progress(?:ing)?)\s+(?:with\s+)?your\s+(?:application|candidacy)/i,
     /not (?:selected|a fit|the right fit)/i, /position has been filled/i, /no longer (?:being )?considered/i,
     /regret to inform/i, /decided to go (?:in a )?(?:different|another) direction/i ] },
   { type: 'interview', patterns: [
